@@ -1,0 +1,32 @@
+[package]
+name = "zs-cli-test"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Zoho Sheet CLI — Interactive Spreadsheet Engine for Desktop"
+license = "MIT"
+repository = "https://github.com/zoho/Zoho_Sheet_CLI/"
+readme = "README.md"
+keywords = ["spreadsheet", "cli", "zoho", "sheet", "excel"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "zs-cli"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libloading = "0.8"
+crossterm = "0.28"
+rustyline = "15"
+dirs = "6"
+uuid = { version = "1", features = ["v4"] }
+memmap2 = "0.9"
+arboard = "3"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
