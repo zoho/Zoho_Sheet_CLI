@@ -4,7 +4,6 @@ version = "1.0.0"
 edition = "2021"
 rust-version = "1.75"
 description = "Zoho Sheet CLI — Interactive Spreadsheet Engine for Desktop"
-license = "MIT"
 repository = "https://github.com/zoho/Zoho_Sheet_CLI/"
 readme = "README.md"
 keywords = ["spreadsheet", "cli", "zoho", "sheet", "excel"]
