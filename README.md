@@ -95,7 +95,7 @@ zs-cli --script agent_generated_pipeline.txt
 ## Installation
 
 ```bash
-npm install -g zs-cli
+npm install -g @zohocorporation/zs-cli
 ```
 
 > Other package managers (pip, Homebrew, winget) coming soon.
