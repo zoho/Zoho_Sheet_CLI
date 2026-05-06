@@ -102,11 +102,4 @@ npm install -g @zohocorporation/zs-cli
 
 ---
 
-## Documentation
-
-- [Full Command Reference](ARCHITECTURE.md#commands)
-- [Architecture & Developer Guide](ARCHITECTURE.md)
-
----
-
 
