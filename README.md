@@ -23,7 +23,7 @@ Zoho Sheet CLI is an open-source, cross-platform command-line tool that brings f
 Install via npm:
 
 ```bash
-npm install -g zs-cli
+npm install -g @zohocorporation/zs-cli
 ```
 
 Open a spreadsheet and start editing:
