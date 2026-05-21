@@ -70,6 +70,32 @@ pub const ACTION_MANAGEDEFINEDNAME: i32 = 140;
 pub const ACTION_FREEZE: i32 = 162;
 pub const ACTION_UNFREEZE: i32 = 196;
 
+// Table
+pub const ACTION_INSERT_TABLE: i32 = 10073;
+pub const ACTION_SELECT_TABLE_RANGE: i32 = 10132;
+pub const ACTION_CHANGE_TABLE_NAME: i32 = 10133;
+pub const ACTION_MANAGE_TABLE: i32 = 10134;
+pub const ACTION_DELETE_TABLE: i32 = 10135;
+pub const ACTION_CHANGE_TABLE_STYLE: i32 = 10136;
+pub const ACTION_SET_DEFAULT_TABLE_STYLE: i32 = 10137;
+pub const ACTION_INSERT_TABLE_ROW: i32 = 10144;
+pub const ACTION_INSERT_TABLE_COLUMN: i32 = 10145;
+pub const ACTION_DELETE_TABLE_ROW: i32 = 10146;
+pub const ACTION_DELETE_TABLE_COLUMN: i32 = 10147;
+pub const ACTION_CHANGE_TABLE_SOURCE: i32 = 10148;
+pub const ACTION_CHANGE_TABLE_OPTIONS: i32 = 10150;
+
+// Font formatting
+pub const ACTION_SET_ITALIC: i32 = 1;
+pub const ACTION_SET_UNDERLINE: i32 = 2;
+pub const ACTION_SET_FONT_SIZE: i32 = 4;
+pub const ACTION_SET_FONT_COLOR: i32 = 8;
+pub const ACTION_SET_DOUBLE_UNDERLINE: i32 = 13;
+pub const ACTION_SET_BOLD: i32 = 38;
+pub const ACTION_STRIKE_THROUGH: i32 = 77;
+pub const ACTION_SET_SUPERSCRIPT: i32 = 78;
+pub const ACTION_SET_SUBSCRIPT: i32 = 79;
+
 // ─── Shared JSON builders ────────────────────────────────────────────────────
 
 fn build_active_cell(row: i32, col: i32) -> Value {
@@ -869,6 +895,462 @@ pub fn build_unfreeze(rid: &str, sheet_id: &str) -> String {
         "action_id": ACTION_UNFREEZE,
         "rid": rid,
         "sheet_id": sheet_id
+    })
+    .to_string()
+}
+
+// ─── Table operations ────────────────────────────────────────────────────────
+
+pub fn build_insert_table(
+    rid: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+    has_headers: bool,
+) -> String {
+    json!({
+        "action_id": ACTION_INSERT_TABLE,
+        "rid": rid,
+        "sheet_range_list": [{
+            "sheet_id": sheet_id,
+            "range_list": [build_range_object(start_row, start_col, end_row, end_col)]
+        }],
+        "is_contain_headers": has_headers,
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_select_table_range(
+    rid: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_SELECT_TABLE_RANGE,
+        "rid": rid,
+        "sheet_range_list": [{
+            "sheet_id": sheet_id,
+            "range_list": [build_range_object(start_row, start_col, end_row, end_col)]
+        }]
+    })
+    .to_string()
+}
+
+pub fn build_delete_table(rid: &str, table_id: &str, keep_format: bool) -> String {
+    json!({
+        "action_id": ACTION_DELETE_TABLE,
+        "rid": rid,
+        "table_id": table_id,
+        "is_keep_table_format": keep_format
+    })
+    .to_string()
+}
+
+pub fn build_delete_table_column(
+    rid: &str,
+    table_id: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_DELETE_TABLE_COLUMN,
+        "rid": rid,
+        "table_id": table_id,
+        "sheet_range_list": [{
+            "sheet_id": sheet_id,
+            "range_list": [build_range_object(start_row, start_col, end_row, end_col)]
+        }]
+    })
+    .to_string()
+}
+
+pub fn build_delete_table_row(
+    rid: &str,
+    table_id: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_DELETE_TABLE_ROW,
+        "rid": rid,
+        "table_id": table_id,
+        "sheet_range_list": [{
+            "sheet_id": sheet_id,
+            "range_list": [build_range_object(start_row, start_col, end_row, end_col)]
+        }]
+    })
+    .to_string()
+}
+
+pub fn build_change_table_name(
+    rid: &str,
+    sheet_id: &str,
+    table_id: &str,
+    new_name: &str,
+) -> String {
+    json!({
+        "action_id": ACTION_CHANGE_TABLE_NAME,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "table_id": table_id,
+        "table_name": new_name
+    })
+    .to_string()
+}
+
+pub fn build_change_table_options(
+    rid: &str,
+    table_id: &str,
+    sheet_id: &str,
+    setting_type: i32,
+    is_enabled: bool,
+) -> String {
+    json!({
+        "action_id": ACTION_CHANGE_TABLE_OPTIONS,
+        "rid": rid,
+        "table_id": table_id,
+        "sheet_id": sheet_id,
+        "table_settings": {
+            "setting_type": setting_type,
+            "is_enabled": is_enabled
+        }
+    })
+    .to_string()
+}
+
+pub fn build_change_table_source(
+    rid: &str,
+    table_id: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_CHANGE_TABLE_SOURCE,
+        "rid": rid,
+        "table_id": table_id,
+        "sheet_range_list": [{
+            "sheet_id": sheet_id,
+            "range_list": [build_range_object(start_row, start_col, end_row, end_col)]
+        }]
+    })
+    .to_string()
+}
+
+pub fn build_change_table_style_pattern(
+    rid: &str,
+    table_id: &str,
+    style_pattern: i32,
+    keep_cell_format: bool,
+) -> String {
+    json!({
+        "action_id": ACTION_CHANGE_TABLE_STYLE,
+        "rid": rid,
+        "table_id": table_id,
+        "table_style": {
+            "table_style_pattern": style_pattern,
+            "color": {
+                "theme_color": 1,
+                "tint": 0.0
+            }
+        },
+        "is_keep_cell_format": keep_cell_format
+    })
+    .to_string()
+}
+
+pub fn build_insert_table_column(
+    rid: &str,
+    table_id: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+    is_before: bool,
+) -> String {
+    json!({
+        "action_id": ACTION_INSERT_TABLE_COLUMN,
+        "rid": rid,
+        "table_id": table_id,
+        "sheet_range_list": [{
+            "sheet_id": sheet_id,
+            "range_list": [build_range_object(start_row, start_col, end_row, end_col)]
+        }],
+        "is_insert_before": is_before
+    })
+    .to_string()
+}
+
+pub fn build_insert_table_row(
+    rid: &str,
+    table_id: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+    is_below: bool,
+) -> String {
+    json!({
+        "action_id": ACTION_INSERT_TABLE_ROW,
+        "rid": rid,
+        "table_id": table_id,
+        "sheet_range_list": [{
+            "sheet_id": sheet_id,
+            "range_list": [build_range_object(start_row, start_col, end_row, end_col)]
+        }],
+        "is_insert_below": is_below
+    })
+    .to_string()
+}
+
+pub fn build_manage_table(rid: &str, table_id: &str) -> String {
+    json!({
+        "action_id": ACTION_MANAGE_TABLE,
+        "rid": rid,
+        "table_id": table_id
+    })
+    .to_string()
+}
+
+/// Builds a fetch request for table list using sheet_meta filter (2048).
+/// Filter objects in the response contain `table_id` when the filter belongs to a table.
+pub fn build_table_list_fetch(rid: &str, sheet_id: &str) -> String {
+    // sheet_meta = filter(2048) — filter objects contain table_id when from a table
+    // Use full sheet boundary to ensure all tables are captured
+    json!({
+        "rid": rid,
+        "doc_meta": 2,
+        "meta": [{"sheet_meta": 2048, "cell_meta": 0}],
+        "ranges": [{"boundary": [0, 0, 262143, 4095], "sheet_id": sheet_id}]
+    })
+    .to_string()
+}
+
+pub fn build_set_default_table_style(rid: &str, style_pattern: i32) -> String {
+    json!({
+        "action_id": ACTION_SET_DEFAULT_TABLE_STYLE,
+        "rid": rid,
+        "table_style": {
+            "table_style_pattern": style_pattern,
+            "color": {
+                "theme_color": 1,
+                "tint": 0.0
+            }
+        }
+    })
+    .to_string()
+}
+
+// ─── Font formatting ─────────────────────────────────────────────────────────
+
+pub fn build_set_bold(
+    rid: &str,
+    sheet_id: &str,
+    is_bold: bool,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_SET_BOLD,
+        "rid": rid,
+        "is_bold": is_bold,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_set_italic(
+    rid: &str,
+    sheet_id: &str,
+    is_italic: bool,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_SET_ITALIC,
+        "rid": rid,
+        "is_italic": is_italic,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_set_underline(
+    rid: &str,
+    sheet_id: &str,
+    is_underline: bool,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_SET_UNDERLINE,
+        "rid": rid,
+        "is_underline": is_underline,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_set_double_underline(
+    rid: &str,
+    sheet_id: &str,
+    is_double_underline: bool,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_SET_DOUBLE_UNDERLINE,
+        "rid": rid,
+        "is_double_underline": is_double_underline,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_strike_through(
+    rid: &str,
+    sheet_id: &str,
+    is_strike_through: bool,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_STRIKE_THROUGH,
+        "rid": rid,
+        "is_strike_through": is_strike_through,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_set_superscript(
+    rid: &str,
+    sheet_id: &str,
+    is_superscript: bool,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_SET_SUPERSCRIPT,
+        "rid": rid,
+        "is_superscript": is_superscript,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_set_subscript(
+    rid: &str,
+    sheet_id: &str,
+    is_subscript: bool,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_SET_SUBSCRIPT,
+        "rid": rid,
+        "is_subscript": is_subscript,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_set_font_size(
+    rid: &str,
+    sheet_id: &str,
+    font_size: i32,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_SET_FONT_SIZE,
+        "rid": rid,
+        "font_size": font_size,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_set_font_color_rgb(
+    rid: &str,
+    sheet_id: &str,
+    red: i32,
+    green: i32,
+    blue: i32,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_SET_FONT_COLOR,
+        "rid": rid,
+        "is_automatic": false,
+        "font_color": {
+            "red": red,
+            "green": green,
+            "blue": blue
+        },
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_set_font_color_auto(
+    rid: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_SET_FONT_COLOR,
+        "rid": rid,
+        "is_automatic": true,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
     })
     .to_string()
 }

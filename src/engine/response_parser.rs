@@ -534,3 +534,240 @@ pub fn parse_find_replace(json_str: &str) -> FindReplaceResult {
 pub fn is_success(status_code: i32) -> bool {
     status_code == 100
 }
+
+/// Parses the response from an insert_table operation.
+/// Returns (status_code, status_message, table_id).
+pub fn parse_insert_table(json_str: &str) -> (i32, Option<String>, Option<String>) {
+    let json = match parse_root(json_str) {
+        Some(v) => v,
+        None => return (-1, Some("Invalid JSON".to_string()), None),
+    };
+    let (status_code, status_message) = parse_status(&json);
+    let table_id = get_obj(&json, "response")
+        .and_then(|r| get_str(r, "table_id"));
+    (status_code, status_message, table_id)
+}
+
+/// Parses the response from a select_table_range operation.
+/// Returns (status_code, is_contain_headers, range).
+pub fn parse_select_table_range(
+    json_str: &str,
+) -> (i32, Option<String>, bool, Option<(i32, i32, i32, i32)>) {
+    let json = match parse_root(json_str) {
+        Some(v) => v,
+        None => return (-1, Some("Invalid JSON".to_string()), false, None),
+    };
+    let (status_code, status_message) = parse_status(&json);
+    let resp = get_obj(&json, "response");
+    let has_headers = resp
+        .and_then(|r| get_bool(r, "is_contain_headers"))
+        .unwrap_or(false);
+    let range = resp.and_then(|r| get_obj(r, "range")).map(|rng| {
+        (
+            get_int(rng, "start_row").unwrap_or(0),
+            get_int(rng, "start_column").unwrap_or(0),
+            get_int(rng, "end_row").unwrap_or(0),
+            get_int(rng, "end_column").unwrap_or(0),
+        )
+    });
+    (status_code, status_message, has_headers, range)
+}
+
+/// Result type for manage_table response.
+#[derive(Debug, Default)]
+pub struct ManageTableResult {
+    pub status_code: i32,
+    pub status_message: Option<String>,
+    pub table_name: String,
+    pub sheet_id: String,
+    pub source_start_row: i32,
+    pub source_start_col: i32,
+    pub source_end_row: i32,
+    pub source_end_col: i32,
+    pub is_header_row: bool,
+    pub is_total_row: bool,
+    pub is_first_column: bool,
+    pub is_last_column: bool,
+    pub is_banded_row: bool,
+    pub is_banded_column: bool,
+    pub is_show_filter_button: bool,
+    pub table_style_type: String,
+    pub table_color_pattern: String,
+    pub column_headers: Vec<String>,
+}
+
+/// Parses the response from a manage_table operation.
+pub fn parse_manage_table(json_str: &str) -> Option<ManageTableResult> {
+    let json = parse_root(json_str)?;
+    let (status_code, status_message) = parse_status(&json);
+    let resp = get_obj(&json, "response")?;
+
+    let table_name = get_str(resp, "table_name").unwrap_or_default();
+    let sheet_id = get_str(resp, "sheet_id").unwrap_or_default();
+
+    let (sr, sc, er, ec) = if let Some(src) = get_obj(resp, "table_source") {
+        (
+            get_int(src, "start_row").unwrap_or(0),
+            get_int(src, "start_column").unwrap_or(0),
+            get_int(src, "end_row").unwrap_or(0),
+            get_int(src, "end_column").unwrap_or(0),
+        )
+    } else {
+        (0, 0, 0, 0)
+    };
+
+    let style_type = get_obj(resp, "table_style")
+        .and_then(|s| get_str(s, "table_style_type"))
+        .unwrap_or_default();
+    let color_pattern = get_obj(resp, "table_style")
+        .and_then(|s| get_str(s, "table_color_pattern"))
+        .unwrap_or_default();
+
+    let mut headers = Vec::new();
+    if let Some(arr) = get_arr(resp, "table_column_headers") {
+        for item in arr {
+            if let Some(s) = item.as_str() {
+                headers.push(s.to_string());
+            }
+        }
+    }
+
+    Some(ManageTableResult {
+        status_code,
+        status_message,
+        table_name,
+        sheet_id,
+        source_start_row: sr,
+        source_start_col: sc,
+        source_end_row: er,
+        source_end_col: ec,
+        is_header_row: get_bool(resp, "is_header_row").unwrap_or(false),
+        is_total_row: get_bool(resp, "is_total_row").unwrap_or(false),
+        is_first_column: get_bool(resp, "is_first_column").unwrap_or(false),
+        is_last_column: get_bool(resp, "is_last_column").unwrap_or(false),
+        is_banded_row: get_bool(resp, "is_banded_row").unwrap_or(false),
+        is_banded_column: get_bool(resp, "is_banded_column").unwrap_or(false),
+        is_show_filter_button: get_bool(resp, "is_show_filter_button").unwrap_or(false),
+        table_style_type: style_type,
+        table_color_pattern: color_pattern,
+        column_headers: headers,
+    })
+}
+
+// ─── Table list parsing ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct TableListEntry {
+    pub table_id: String,
+    pub start_row: i32,
+    pub start_col: i32,
+    pub end_row: i32,
+    pub end_col: i32,
+}
+
+/// Parses table entries from a sheet meta fetch response (filter 2048).
+/// The filter objects contain `table_id` and `filter_range` when the filter belongs to a table.
+/// Response structure: workbook_info -> sheets_data[] -> filter[] -> table_id + filter_range
+pub fn parse_table_list(json_str: &str) -> Vec<TableListEntry> {
+    let json = match parse_root(json_str) {
+        Some(v) => v,
+        None => return Vec::new(),
+    };
+
+    let mut entries = Vec::new();
+
+    // Primary path: workbook_info -> sheets_data -> filter
+    if let Some(wb_info) = json.get("workbook_info") {
+        if let Some(sheets) = wb_info.get("sheets_data").and_then(|v| v.as_array()) {
+            for sheet in sheets {
+                collect_table_entries_from(sheet, &mut entries);
+            }
+        }
+    }
+
+    // Fallback: try response -> worksheets or top-level
+    if entries.is_empty() {
+        let data = unwrap_response(&json);
+        if let Some(ws) = data.get("worksheets").or_else(|| data.get("worksheet")) {
+            collect_table_entries_from(ws, &mut entries);
+        } else {
+            collect_table_entries_from(data, &mut entries);
+        }
+    }
+
+    entries.sort_by(|a, b| a.table_id.cmp(&b.table_id));
+    entries.dedup_by(|a, b| a.table_id == b.table_id);
+    entries
+}
+
+fn extract_table_entry(item: &Value) -> Option<TableListEntry> {
+    let tid = item.get("table_id").and_then(|v| v.as_str())?;
+    if tid.is_empty() {
+        return None;
+    }
+    let range = item.get("filter_range");
+    let (sr, sc, er, ec) = if let Some(r) = range {
+        (
+            get_int(r, "start_row").unwrap_or(0),
+            get_int(r, "start_column").unwrap_or(0),
+            get_int(r, "end_row").unwrap_or(0),
+            get_int(r, "end_column").unwrap_or(0),
+        )
+    } else {
+        (0, 0, 0, 0)
+    };
+    Some(TableListEntry {
+        table_id: tid.to_string(),
+        start_row: sr,
+        start_col: sc,
+        end_row: er,
+        end_col: ec,
+    })
+}
+
+fn collect_table_entries_from(val: &Value, out: &mut Vec<TableListEntry>) {
+    // Check "filter_info" (array of filter objects)
+    if let Some(arr) = val.get("filter_info").and_then(|v| v.as_array()) {
+        for item in arr {
+            if let Some(entry) = extract_table_entry(item) {
+                out.push(entry);
+            }
+        }
+    }
+    // Check "filter" (single or array)
+    if let Some(filter_val) = val.get("filter") {
+        if let Some(arr) = filter_val.as_array() {
+            for item in arr {
+                if let Some(entry) = extract_table_entry(item) {
+                    out.push(entry);
+                }
+            }
+        } else if let Some(entry) = extract_table_entry(filter_val) {
+            out.push(entry);
+        }
+    }
+    // Recurse into "meta" array entries (sheet-level data)
+    if let Some(meta_arr) = val.get("meta").and_then(|v| v.as_array()) {
+        for entry in meta_arr {
+            collect_table_entries_from(entry, out);
+        }
+    }
+    // Recurse into array values at top level
+    if val.is_array() {
+        if let Some(arr) = val.as_array() {
+            for entry in arr {
+                collect_table_entries_from(entry, out);
+            }
+        }
+    }
+    // Check inside objects with sheet data
+    if let Some(obj) = val.as_object() {
+        for (_key, child) in obj {
+            if child.is_object() {
+                if child.get("filter_info").is_some() || child.get("filter").is_some() {
+                    collect_table_entries_from(child, out);
+                }
+            }
+        }
+    }
+}

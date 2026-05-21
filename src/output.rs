@@ -188,7 +188,7 @@ fn print_box_empty(out: &mut io::Stdout) {
 }
 
 fn print_box_line(out: &mut io::Stdout, text: &str, color: Color, center: bool) {
-    let visible_len = text.len();
+    let visible_len = text.chars().count();
     let pad = BOX_W.saturating_sub(visible_len);
     let left_pad = if center { pad / 2 } else { 0 };
     let right_pad = pad - left_pad;

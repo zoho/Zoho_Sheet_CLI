@@ -1,6 +1,6 @@
 [package]
 name = "zs-cli-test"
-version = "1.0.0"
+version = "1.0.3"
 edition = "2026"
 rust-version = "1.94"
 description = "Zoho Sheet CLI — Interactive Spreadsheet Engine for Desktop"

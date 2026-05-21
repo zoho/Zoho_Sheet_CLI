@@ -69,6 +69,8 @@ pub fn dispatch(
         "freeze" => cmd_freeze(&args, engine, session),
         "unfreeze" => cmd_unfreeze(engine, session),
         "name" => cmd_name(&args, engine, session),
+        "table" => cmd_table(&args, engine, session),
+        "format" => cmd_format(&args, engine, session),
         "help" => { print_help(); }
         _ => {
             output::error(&format!(
@@ -1876,6 +1878,372 @@ fn cmd_name(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
     }
 }
 
+// ─── Table ────────────────────────────────────────────────────────────────────
+
+fn cmd_table(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    require_active!(session);
+    if args.is_empty() {
+        output::error("Usage: table list|create|select|delete|rename|options|source|style|defaultstyle|insertrow|insertcol|deleterow|deletecol|manage [args]");
+        return;
+    }
+    match args[0].to_lowercase().as_str() {
+        "list" => table_list(engine, session),
+        "create" => table_create(&args[1..], engine, session),
+        "select" => table_select(&args[1..], engine, session),
+        "delete" => table_delete(&args[1..], engine, session),
+        "rename" => table_rename(&args[1..], engine, session),
+        "options" => table_options(&args[1..], engine, session),
+        "source" => table_source(&args[1..], engine, session),
+        "style" => table_style(&args[1..], engine, session),
+        "defaultstyle" => table_default_style(&args[1..], engine, session),
+        "insertrow" => table_insert_row(&args[1..], engine, session),
+        "insertcol" => table_insert_col(&args[1..], engine, session),
+        "deleterow" => table_delete_row(&args[1..], engine, session),
+        "deletecol" => table_delete_col(&args[1..], engine, session),
+        "manage" => table_manage(&args[1..], engine, session),
+        other => output::error(&format!(
+            "Unknown table sub-command: '{}'. Use: list, create, select, delete, rename, options, source, style, defaultstyle, insertrow, insertcol, deleterow, deletecol, manage",
+            other
+        )),
+    }
+}
+
+fn table_list(engine: &EngineHandle, session: &CliSession) {
+    let rid = match &session.rid {
+        Some(r) => r.clone(),
+        None => return,
+    };
+    let sheet_id = session.get_active_sheet_id_or_default();
+    let fetch_req = rb::build_table_list_fetch(&rid, &sheet_id);
+    match engine.fetch_json(&fetch_req) {
+        Ok(resp) => {
+            let tables = rp::parse_table_list(&resp);
+            if tables.is_empty() {
+                output::info("No tables found in the active sheet.");
+            } else {
+                let sheet_name = session.active_sheet_name.as_deref().unwrap_or("Sheet");
+                output::line(&format!("Tables in '{}':", sheet_name), 0);
+                for (i, t) in tables.iter().enumerate() {
+                    let start = format!("{}{}", cell_ref::col_to_letter(t.start_col), t.start_row + 1);
+                    let end = format!("{}{}", cell_ref::col_to_letter(t.end_col), t.end_row + 1);
+                    output::line(&format!("  [{}] {}  ({}:{})", i, t.table_id, start, end), 0);
+                }
+            }
+        }
+        Err(e) => output::error(&format!("Failed to fetch table info: {}", e)),
+    }
+}
+
+fn table_create(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.is_empty() {
+        output::error("Usage: table create <range> [--headers]");
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let has_headers = args.iter().skip(1).any(|a| a.eq_ignore_ascii_case("--headers"));
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_insert_table(rid, &sid, sr, sc, er, ec, has_headers);
+    match engine.process_request_json(&request) {
+        Ok(resp) => {
+            let (status_code, status_message, table_id) = rp::parse_insert_table(&resp);
+            if rp::is_success(status_code) {
+                output::success(&format!(
+                    "Table created on {}.",
+                    args[0].to_uppercase()
+                ));
+                if let Some(id) = table_id {
+                    output::key_value("Table ID", &id, 2);
+                }
+                session.is_dirty = true;
+            } else {
+                output::error(&format!(
+                    "Failed to create table: {}",
+                    status_message.unwrap_or_else(|| "engine error".into())
+                ));
+            }
+        }
+        Err(e) => output::error(&format!("Engine error: {}", e)),
+    }
+}
+
+fn table_select(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.is_empty() {
+        output::error("Usage: table select <range>");
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_select_table_range(rid, &sid, sr, sc, er, ec);
+    match engine.process_request_json(&request) {
+        Ok(resp) => {
+            let (status_code, status_message, has_headers, range) =
+                rp::parse_select_table_range(&resp);
+            if rp::is_success(status_code) {
+                output::success("Table range selected.");
+                output::key_value("Has headers", if has_headers { "yes" } else { "no" }, 2);
+                if let Some((sr, sc, er, ec)) = range {
+                    output::key_value(
+                        "Range",
+                        &format!(
+                            "{}:{}",
+                            cell_ref::to_ref(sc, sr),
+                            cell_ref::to_ref(ec, er)
+                        ),
+                        2,
+                    );
+                }
+            } else {
+                output::error(&format!(
+                    "Failed to select table range: {}",
+                    status_message.unwrap_or_else(|| "engine error".into())
+                ));
+            }
+        }
+        Err(e) => output::error(&format!("Engine error: {}", e)),
+    }
+}
+
+fn table_delete(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.is_empty() {
+        output::error("Usage: table delete <tableId> [--keep-format]");
+        return;
+    }
+    let table_id = args[0];
+    let keep_format = args.iter().skip(1).any(|a| a.eq_ignore_ascii_case("--keep-format"));
+    let rid = session.rid.as_deref().unwrap();
+    let request = rb::build_delete_table(rid, table_id, keep_format);
+    exec_status_cmd(engine, &request, session, &format!("Table '{}' deleted.", table_id));
+}
+
+fn table_rename(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: table rename <tableId> <newName>");
+        return;
+    }
+    let table_id = args[0];
+    let new_name = args[1];
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_change_table_name(rid, &sid, table_id, new_name);
+    exec_status_cmd(
+        engine,
+        &request,
+        session,
+        &format!("Table renamed to '{}'.", new_name),
+    );
+}
+
+fn table_options(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 3 {
+        output::error("Usage: table options <tableId> <settingType> <true|false>");
+        output::info("  Setting types: 0=header_row, 1=total_row, 2=banded_row, 3=banded_column, 4=first_column, 5=last_column, 6=filter_button");
+        return;
+    }
+    let table_id = args[0];
+    let setting_type: i32 = match args[1].parse() {
+        Ok(n) if (0..=6).contains(&n) => n,
+        _ => {
+            output::error("Setting type must be 0-6.");
+            return;
+        }
+    };
+    let is_enabled = args[2].eq_ignore_ascii_case("true");
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_change_table_options(rid, table_id, &sid, setting_type, is_enabled);
+    let setting_names = [
+        "header_row", "total_row", "banded_row", "banded_column",
+        "first_column", "last_column", "filter_button",
+    ];
+    let label = setting_names.get(setting_type as usize).unwrap_or(&"unknown");
+    exec_status_cmd(
+        engine,
+        &request,
+        session,
+        &format!("Table option '{}' set to {}.", label, is_enabled),
+    );
+}
+
+fn table_source(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: table source <tableId> <range>");
+        return;
+    }
+    let table_id = args[0];
+    let (sc, sr, ec, er) = parse_range_arg!(args[1]);
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_change_table_source(rid, table_id, &sid, sr, sc, er, ec);
+    exec_status_cmd(
+        engine,
+        &request,
+        session,
+        &format!("Table source changed to {}.", args[1].to_uppercase()),
+    );
+}
+
+fn table_style(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: table style <tableId> <stylePattern> [--keep-format]");
+        output::info("  Style patterns: 0=none, 1-3=light, 4-8=medium, 9=dark");
+        return;
+    }
+    let table_id = args[0];
+    let pattern: i32 = match args[1].parse() {
+        Ok(n) if (0..=9).contains(&n) => n,
+        _ => {
+            output::error("Style pattern must be 0-9.");
+            return;
+        }
+    };
+    let keep_format = args.iter().skip(2).any(|a| a.eq_ignore_ascii_case("--keep-format"));
+    let rid = session.rid.as_deref().unwrap();
+    let request = rb::build_change_table_style_pattern(rid, table_id, pattern, keep_format);
+    exec_status_cmd(
+        engine,
+        &request,
+        session,
+        &format!("Table style changed to pattern {}.", pattern),
+    );
+}
+
+fn table_default_style(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.is_empty() {
+        output::error("Usage: table defaultstyle <stylePattern>");
+        output::info("  Style patterns: 0=none, 1-3=light, 4-8=medium, 9=dark");
+        return;
+    }
+    let pattern: i32 = match args[0].parse() {
+        Ok(n) if (0..=9).contains(&n) => n,
+        _ => {
+            output::error("Style pattern must be 0-9.");
+            return;
+        }
+    };
+    let rid = session.rid.as_deref().unwrap();
+    let request = rb::build_set_default_table_style(rid, pattern);
+    exec_status_cmd(
+        engine,
+        &request,
+        session,
+        &format!("Default table style set to pattern {}.", pattern),
+    );
+}
+
+fn table_insert_row(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: table insertrow <tableId> <range> [--above]");
+        return;
+    }
+    let table_id = args[0];
+    let (sc, sr, ec, er) = parse_range_arg!(args[1]);
+    let is_below = !args.iter().skip(2).any(|a| a.eq_ignore_ascii_case("--above"));
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_insert_table_row(rid, table_id, &sid, sr, sc, er, ec, is_below);
+    let pos = if is_below { "below" } else { "above" };
+    exec_status_cmd(
+        engine,
+        &request,
+        session,
+        &format!("Table row(s) inserted {}.", pos),
+    );
+}
+
+fn table_insert_col(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: table insertcol <tableId> <range> [--after]");
+        return;
+    }
+    let table_id = args[0];
+    let (sc, sr, ec, er) = parse_range_arg!(args[1]);
+    let is_before = !args.iter().skip(2).any(|a| a.eq_ignore_ascii_case("--after"));
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_insert_table_column(rid, table_id, &sid, sr, sc, er, ec, is_before);
+    let pos = if is_before { "before" } else { "after" };
+    exec_status_cmd(
+        engine,
+        &request,
+        session,
+        &format!("Table column(s) inserted {}.", pos),
+    );
+}
+
+fn table_delete_row(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: table deleterow <tableId> <range>");
+        return;
+    }
+    let table_id = args[0];
+    let (sc, sr, ec, er) = parse_range_arg!(args[1]);
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_delete_table_row(rid, table_id, &sid, sr, sc, er, ec);
+    exec_status_cmd(engine, &request, session, "Table row(s) deleted.");
+}
+
+fn table_delete_col(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: table deletecol <tableId> <range>");
+        return;
+    }
+    let table_id = args[0];
+    let (sc, sr, ec, er) = parse_range_arg!(args[1]);
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_delete_table_column(rid, table_id, &sid, sr, sc, er, ec);
+    exec_status_cmd(engine, &request, session, "Table column(s) deleted.");
+}
+
+fn table_manage(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.is_empty() {
+        output::error("Usage: table manage <tableId>");
+        return;
+    }
+    let table_id = args[0];
+    let rid = session.rid.as_deref().unwrap();
+    let request = rb::build_manage_table(rid, table_id);
+    match engine.process_request_json(&request) {
+        Ok(resp) => {
+            if let Some(info) = rp::parse_manage_table(&resp) {
+                if !rp::is_success(info.status_code) {
+                    output::error(&format!(
+                        "Failed to get table info: {}",
+                        info.status_message.unwrap_or_else(|| "engine error".into())
+                    ));
+                    return;
+                }
+                let range_display = format!(
+                    "{}:{}",
+                    cell_ref::to_ref(info.source_start_col, info.source_start_row),
+                    cell_ref::to_ref(info.source_end_col, info.source_end_row)
+                );
+                output::line(&format!("Table: {}", info.table_name), 0);
+                output::key_value("Table ID", table_id, 2);
+                output::key_value("Source", &range_display, 2);
+                output::key_value("Style", &format!("{} ({})", info.table_style_type, info.table_color_pattern), 2);
+                output::line("  Options:", 0);
+                output::key_value("  Header Row", if info.is_header_row { "yes" } else { "no" }, 2);
+                output::key_value("  Total Row", if info.is_total_row { "yes" } else { "no" }, 2);
+                output::key_value("  Banded Rows", if info.is_banded_row { "yes" } else { "no" }, 2);
+                output::key_value("  Banded Columns", if info.is_banded_column { "yes" } else { "no" }, 2);
+                output::key_value("  First Column", if info.is_first_column { "yes" } else { "no" }, 2);
+                output::key_value("  Last Column", if info.is_last_column { "yes" } else { "no" }, 2);
+                output::key_value("  Filter Button", if info.is_show_filter_button { "yes" } else { "no" }, 2);
+                if !info.column_headers.is_empty() {
+                    output::key_value("Columns", &info.column_headers.join(", "), 2);
+                }
+            } else {
+                output::error("Failed to parse table info from engine response.");
+            }
+        }
+        Err(e) => output::error(&format!("Engine error: {}", e)),
+    }
+}
+
 // ─── Helper macros & functions ───────────────────────────────────────────────
 
 /// Macro to check if session is active, printing error and returning early if not.
@@ -1902,6 +2270,121 @@ macro_rules! parse_range_arg {
     };
 }
 use parse_range_arg;
+
+// ─── Format (Font) ───────────────────────────────────────────────────────────
+
+fn cmd_format(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    require_active!(session);
+    if args.is_empty() {
+        output::error("Usage: format <bold|italic|underline|doubleunderline|strikethrough|superscript|subscript|fontsize|fontcolor> <range> ...");
+        return;
+    }
+    let sub = args[0].to_lowercase();
+    let rest = &args[1..];
+    match sub.as_str() {
+        "bold" => cmd_format_bool_toggle(rest, engine, session, "bold"),
+        "italic" => cmd_format_bool_toggle(rest, engine, session, "italic"),
+        "underline" => cmd_format_bool_toggle(rest, engine, session, "underline"),
+        "doubleunderline" => cmd_format_bool_toggle(rest, engine, session, "doubleunderline"),
+        "strikethrough" => cmd_format_bool_toggle(rest, engine, session, "strikethrough"),
+        "superscript" => cmd_format_bool_toggle(rest, engine, session, "superscript"),
+        "subscript" => cmd_format_bool_toggle(rest, engine, session, "subscript"),
+        "fontsize" => cmd_format_font_size(rest, engine, session),
+        "fontcolor" => cmd_format_font_color(rest, engine, session),
+        _ => {
+            output::error(&format!("Unknown format sub-command: '{}'. Use: bold, italic, underline, doubleunderline, strikethrough, superscript, subscript, fontsize, fontcolor.", sub));
+        }
+    }
+}
+
+fn cmd_format_bool_toggle(
+    args: &[&str],
+    engine: &EngineHandle,
+    session: &mut CliSession,
+    prop: &str,
+) {
+    if args.len() < 2 {
+        output::error(&format!("Usage: format {} <range> <true|false>", prop));
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let value = match args[1].to_lowercase().as_str() {
+        "true" | "1" | "on" | "yes" => true,
+        "false" | "0" | "off" | "no" => false,
+        _ => {
+            output::error(&format!("Invalid value '{}'. Use true/false.", args[1]));
+            return;
+        }
+    };
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = match prop {
+        "bold" => rb::build_set_bold(rid, &sid, value, sr, sc, er, ec),
+        "italic" => rb::build_set_italic(rid, &sid, value, sr, sc, er, ec),
+        "underline" => rb::build_set_underline(rid, &sid, value, sr, sc, er, ec),
+        "doubleunderline" => rb::build_set_double_underline(rid, &sid, value, sr, sc, er, ec),
+        "strikethrough" => rb::build_strike_through(rid, &sid, value, sr, sc, er, ec),
+        "superscript" => rb::build_set_superscript(rid, &sid, value, sr, sc, er, ec),
+        "subscript" => rb::build_set_subscript(rid, &sid, value, sr, sc, er, ec),
+        _ => unreachable!(),
+    };
+    let label = if value { "enabled" } else { "disabled" };
+    exec_status_cmd(engine, &request, session, &format!("{} {} on {}.", prop, label, args[0].to_uppercase()));
+}
+
+fn cmd_format_font_size(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: format fontsize <range> <size>");
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let size: i32 = match args[1].parse() {
+        Ok(v) if v > 0 => v,
+        _ => {
+            output::error(&format!("Invalid font size '{}'. Must be a positive integer.", args[1]));
+            return;
+        }
+    };
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_set_font_size(rid, &sid, size, sr, sc, er, ec);
+    exec_status_cmd(engine, &request, session, &format!("Font size set to {} on {}.", size, args[0].to_uppercase()));
+}
+
+fn cmd_format_font_color(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.is_empty() {
+        output::error("Usage: format fontcolor <range> <r> <g> <b>  OR  format fontcolor <range> --auto");
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+
+    if args.len() >= 2 && args[1].eq_ignore_ascii_case("--auto") {
+        let request = rb::build_set_font_color_auto(rid, &sid, sr, sc, er, ec);
+        exec_status_cmd(engine, &request, session, &format!("Font color set to automatic on {}.", args[0].to_uppercase()));
+        return;
+    }
+
+    if args.len() < 4 {
+        output::error("Usage: format fontcolor <range> <r> <g> <b>  OR  format fontcolor <range> --auto");
+        return;
+    }
+    let parse_channel = |s: &str, name: &str| -> Result<i32, ()> {
+        match s.parse::<i32>() {
+            Ok(v) if (0..=255).contains(&v) => Ok(v),
+            _ => {
+                output::error(&format!("Invalid {} value '{}'. Must be 0-255.", name, s));
+                Err(())
+            }
+        }
+    };
+    let r = match parse_channel(args[1], "red") { Ok(v) => v, Err(_) => return };
+    let g = match parse_channel(args[2], "green") { Ok(v) => v, Err(_) => return };
+    let b = match parse_channel(args[3], "blue") { Ok(v) => v, Err(_) => return };
+    let request = rb::build_set_font_color_rgb(rid, &sid, r, g, b, sr, sc, er, ec);
+    exec_status_cmd(engine, &request, session, &format!("Font color set to ({},{},{}) on {}.", r, g, b, args[0].to_uppercase()));
+}
 
 /// Execute a ProcessRequestJson call, check status, and print success/error.
 fn exec_status_cmd(
@@ -1990,6 +2473,40 @@ fn print_help() {
     output::info("  name add <name> <range>      Add a named range");
     output::info("  name delete <name>           Delete a named range");
     output::info("  name list                    List all defined names");
+    output::info("");
+    output::info("  TABLES");
+    output::info("  table list                                   List all tables in active sheet");
+    output::info("  table create <range> [--headers]             Create a table on range");
+    output::info("  table select <range>                         Select table range");
+    output::info("  table delete <tableId> [--keep-format]       Delete a table");
+    output::info("  table rename <tableId> <name>                Rename a table");
+    output::info("  table options <tableId> <type> <true|false>  Toggle table option");
+    output::info("         types: 0=Header Row    1=Total Row      2=Banded Rows");
+    output::info("                3=Banded Columns 4=First Column   5=Last Column");
+    output::info("                6=Filter Button");
+    output::info("  table source <tableId> <range>               Change table source range");
+    output::info("  table style <tableId> <pattern>              Change table style (0-9)");
+    output::info("         patterns: 0=Light1  1=Light2  2=Light3  3=Light4  4=Light5");
+    output::info("                   5=Medium1 6=Medium2 7=Medium3 8=Dark1   9=Dark2");
+    output::info("  table defaultstyle <pattern>                 Set default table style");
+    output::info("  table insertrow <tableId> <range> [--above]  Insert table row(s)");
+    output::info("  table insertcol <tableId> <range> [--after]  Insert table column(s)");
+    output::info("  table deleterow <tableId> <range>            Delete table row(s)");
+    output::info("  table deletecol <tableId> <range>            Delete table column(s)");
+    output::info("  table manage <tableId>                       Get table info");
+    output::info("");
+    output::info("");
+    output::info("  FORMATTING");
+    output::info("  format bold <range> <true|false>              Toggle bold");
+    output::info("  format italic <range> <true|false>            Toggle italic");
+    output::info("  format underline <range> <true|false>         Toggle underline");
+    output::info("  format doubleunderline <range> <true|false>   Toggle double underline");
+    output::info("  format strikethrough <range> <true|false>     Toggle strikethrough");
+    output::info("  format superscript <range> <true|false>       Toggle superscript");
+    output::info("  format subscript <range> <true|false>         Toggle subscript");
+    output::info("  format fontsize <range> <size>                Set font size");
+    output::info("  format fontcolor <range> <r> <g> <b>          Set font color (RGB 0-255)");
+    output::info("  format fontcolor <range> --auto               Set automatic font color");
     output::info("");
     output::info("  help                         Show this help");
     output::info("  exit / quit                  Exit the CLI");
