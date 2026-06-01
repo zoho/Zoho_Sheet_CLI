@@ -1,0 +1,60 @@
+Apache 2.0 License
+ 
+Applies to the following files:
+ 
+Linux: 
+/@zohocorporation/zs-cli-linux-x64/bin/EngineFonts/
+/@zohocorporation/zs-cli-linux-x64/bin/icudt76l.dat
+/@zohocorporation/zs-cli-linux-x64/bin/zs-cli
+ 
+Mac: 
+/@zohocorporation/zs-cli-linux-x64/bin/EngineFonts/
+/@zohocorporation/zs-cli-linux-x64/bin/icudt76l.dat
+/@zohocorporation/zs-cli-linux-x64/bin/zs-cli
+ 
+Windows:
+/@zohocorporation/zs-cli-linux-x64/bin/EngineFonts/
+/@zohocorporation/zs-cli-linux-x64/bin/icudt76l.dat
+/@zohocorporation/zs-cli-linux-x64/bin/zs-cli.exe
+ 
+License : 
+
+https://opensource.org/license/Apache-2.0 - Apache 2.0
+ 
+End-User License Agreement
+ 
+Applies to the Zoho Sheet Engine Files:
+ 
+Linux:
+/@zohocorporation/zs-cli-linux-x64/bin /libNativeClientEngine.so
+/@zohocorporation/zs-cli-linux-arm64/bin /libNativeClientEngine.so
+ 
+Mac:
+/@zohocorporation/zs-cli-darwin-arm64/bin /libNativeClientEngine.dylib
+/@zohocorporation/zs-cli-darwin-x64/bin /libNativeClientEngine.dylib
+ 
+Windows:
+/@zohocorporation/zs-cli-win32-x64/bin /libNativeClientEngine.dll
+ 
+ 
+END USER LICENSE AGREEMENT
+
+This is an Agreement ("Agreement") between you or the entity you represent (hereinafter "you" or "your") and Zoho Corporation Private Limited (hereinafter "Zoho") governing your use of the Zoho Sheet Engine Files ("Licensed Software").
+PLEASE READ THE FOLLOWING TERMS AND CONDITIONS CAREFULLY. BY USING THE LICENSED SOFTWARE YOU AGREE TO BE BOUND BY THE TERMS AND CONDITIONS OF THIS AGREEMENT.
+LICENSE GRANT:
+Zoho grants you a limited, non-exclusive, non-transferable, world-wide license to use the Licensed Software for running the zs-cli tool. 
+RESTRICTIONS ON USE:
+You shall not:
+i. modify, disassemble, decompile or reverse engineer any part of the Licensed Software;
+ii. create any derivative work of the Licensed Software;
+iii. disclose any testing results or performance benchmarks of the Licensed Software without Zoho's prior written consent;
+iv. remove, modify or tamper with any copyright, trademark or other proprietary notices from the Licensed Software or its copies;
+v. make any copies except for one back-up or archival copy, for temporary emergency purpose;
+vi. rent, lease, license, sub-license or distribute the Licensed Software or any portions of it on a standalone basis or as part of your application; or
+vii. allow any third parties to access or use the Licensed Software except employees, contractors, consultants or other third parties engaged by you.
+WARRANTY DISCLAIMER:
+Zoho does not warrant that the Licensed Software will be error-free or that the Licensed Software will not infringe, misappropriate, or otherwise violate any intellectual property right or other right of any third party. Except as provided herein, the Licensed Software is furnished "as is" without warranty of any kind, including the warranties of merchantability and fitness for a particular purpose and without warranty as to the performance or results you may obtain by using the Licensed Software. You are solely responsible for determining the appropriateness of using the Licensed Software and assume all risks associated with the use of it, including but not limited to the risks of program errors, damage to or loss of data, programs or equipment, and unavailability or interruption of operations.
+LIMITATION OF LIABILITY:
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, UNDER NO CIRCUMSTANCES AND UNDER NO LEGAL THEORY, WHETHER TORT (INCLUDING NEGLIGENCE), PRODUCT LIABILITY, CONTRACT, OR OTHERWISE, SHALL ZOHO BE LIABLE TO YOU OR ANY OTHER PERSON FOR ANY INDIRECT, SPECIAL, INCIDENTAL, RELIANCE OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE THE LICENSED SOFTWARE, EVEN IF ZOHO HAS BEEN INFORMED OF THE POSSIBILITY OF SUCH DAMAGES. 
+GENERAL:
+Any dispute or lawsuit arising out of, or in connection with this Agreement shall be governed by and interpreted in all respects by the laws of India, without regard to its conflict of law principles. You agree to submit to the exclusive jurisdiction of the courts in Chennai.

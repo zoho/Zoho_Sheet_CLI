@@ -6,19 +6,22 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use serde_json;
+
 use crate::engine::ffi::EngineHandle;
 use crate::engine::request_builder as rb;
 use crate::engine::response_parser as rp;
 use crate::output;
 use crate::session::CliSession;
 use crate::util::cell_ref;
+use crate::util::numformat;
 
 /// Maximum allowed single argument length to guard the native engine.
 const MAX_INPUT_ARG_LEN: usize = 32_768;
 /// Max rows / columns for batch insert/delete.
 const MAX_ROW_COL_COUNT: i32 = 10_000;
 /// Supported import extensions.
-const SUPPORTED_EXTENSIONS: &[&str] = &[".xlsx", ".csv", ".ods", ".xls", ".tsv"];
+const SUPPORTED_EXTENSIONS: &[&str] = &[".xlsx", ".csv", ".tsv"];
 
 // ─── Dispatch ────────────────────────────────────────────────────────────────
 
@@ -124,7 +127,7 @@ fn open_existing_file(file_path: &str, engine: &EngineHandle, session: &mut CliS
         .unwrap_or_default();
     if !SUPPORTED_EXTENSIONS.contains(&ext.as_str()) {
         output::error(&format!(
-            "Unsupported file type: '{}'. Supported: .xlsx, .csv, .ods, .xls, .tsv",
+            "Unsupported file type: '{}'. Supported: .xlsx, .csv, .tsv",
             ext
         ));
         return;
@@ -163,7 +166,12 @@ fn open_existing_file(file_path: &str, engine: &EngineHandle, session: &mut CliS
         return;
     }
 
-    let request = rb::build_open_workbook(&working_copy.to_string_lossy());
+    let open_file_type = match ext.as_str() {
+        ".csv" => Some(0),
+        ".tsv" => Some(1),
+        _ => None, // xlsx — engine default (2)
+    };
+    let request = rb::build_open_workbook(&working_copy.to_string_lossy(), open_file_type);
     match engine.process_request_json(&request) {
         Ok(response) => {
             if let Some(result) = rp::parse_workbook_open(&response) {
@@ -327,6 +335,17 @@ fn perform_initial_sheet_fetch(engine: &EngineHandle, session: &CliSession) {
     let _ = engine.fetch_json(&fetch);
 }
 
+/// Notify the engine that the active sheet has changed by performing a sheet fetch.
+fn notify_engine_active_sheet(engine: &EngineHandle, session: &CliSession) {
+    let rid = match &session.rid {
+        Some(r) => r.clone(),
+        None => return,
+    };
+    let sheet_id = session.get_active_sheet_id_or_default();
+    let fetch = rb::build_initial_sheet_fetch(&rid, &sheet_id, 1_048_575, 16_383);
+    let _ = engine.fetch_json(&fetch);
+}
+
 fn format_sheet_summary(session: &CliSession) -> String {
     if session.sheet_names.is_empty() {
         return session.sheet_count.to_string();
@@ -464,10 +483,10 @@ fn cmd_save(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_else(|| "xlsx".to_string());
 
-    let supported: Vec<&str> = vec!["xlsx", "csv", "ods", "pdf","tsv"];
+    let supported: Vec<&str> = vec!["xlsx", "csv", "tsv"];
     if !supported.contains(&fmt.as_str()) {
         output::error(&format!(
-            "Unsupported format: '{}'. Supported: xlsx, csv, ods, pdf",
+            "Unsupported format: '{}'. Supported: xlsx, csv, tsv",
             fmt
         ));
         return;
@@ -527,7 +546,6 @@ fn cmd_save(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
         file_type,
         is_save_as,
     );
-
     match engine.process_request_json(&request) {
         Ok(response) => {
             if let Some(result) = rp::parse_export(&response) {
@@ -569,8 +587,7 @@ fn cmd_save(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
 fn map_file_type(fmt: &str) -> i32 {
     match fmt {
         "csv" => 0,
-        "ods" => 3,
-        "pdf" => 4,
+        "tsv" => 1,
         _ => 2, // xlsx
     }
 }
@@ -756,7 +773,7 @@ fn cmd_sheet(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
                 output::error("Usage: worksheet switch <name|index>");
                 return;
             }
-            sheet_select(args[1], session);
+            sheet_select(args[1], engine, session);
         }
         "add" => {
             if args.len() < 2 {
@@ -815,7 +832,7 @@ fn sheet_list(session: &CliSession) {
     }
 }
 
-fn sheet_select(name_or_index: &str, session: &mut CliSession) {
+fn sheet_select(name_or_index: &str, engine: &EngineHandle, session: &mut CliSession) {
     if let Ok(idx) = name_or_index.parse::<usize>() {
         if idx >= session.sheet_names.len() {
             output::error(&format!(
@@ -828,6 +845,8 @@ fn sheet_select(name_or_index: &str, session: &mut CliSession) {
         }
         session.active_sheet_index = idx;
         session.active_sheet_name = Some(session.sheet_names[idx].clone());
+        // Notify the engine about the active sheet change
+        notify_engine_active_sheet(engine, session);
         output::success(&format!(
             "Active sheet: [{}] {}",
             idx,
@@ -842,6 +861,8 @@ fn sheet_select(name_or_index: &str, session: &mut CliSession) {
             Some(i) => {
                 session.active_sheet_index = i;
                 session.active_sheet_name = Some(session.sheet_names[i].clone());
+                // Notify the engine about the active sheet change
+                notify_engine_active_sheet(engine, session);
                 output::success(&format!(
                     "Active sheet: [{}] {}",
                     i,
@@ -858,21 +879,31 @@ fn sheet_select(name_or_index: &str, session: &mut CliSession) {
 
 fn sheet_add(name: &str, engine: &EngineHandle, session: &mut CliSession) {
     let rid = session.rid.clone().unwrap();
+    // Remember existing sheet IDs before adding
+    let old_ids: Vec<String> = session.sheet_ids.clone();
     let request = rb::build_add_sheet(&rid);
     if let Ok(_resp) = engine.process_request_json(&request) {
         refresh_sheet_list(engine, session);
-        // Rename the newly created sheet
-        let new_idx = session.sheet_names.len().saturating_sub(1);
-        if new_idx < session.sheet_ids.len() {
-            let new_id = session.sheet_ids[new_idx].clone();
+        // Find the new sheet by comparing IDs before and after
+        let new_id = session
+            .sheet_ids
+            .iter()
+            .find(|id| !old_ids.contains(id))
+            .cloned();
+        if let Some(new_id) = new_id {
             let rename_req = rb::build_rename_sheet(&rid, &new_id, name);
             let _ = engine.process_request_json(&rename_req);
             refresh_sheet_list(engine, session);
         }
+        // Find the final index of the renamed sheet
+        let final_idx = session
+            .sheet_names
+            .iter()
+            .position(|n| n.eq_ignore_ascii_case(name))
+            .unwrap_or(session.sheet_names.len().saturating_sub(1));
         output::success(&format!(
             "Added sheet: '{}' at index [{}]",
-            name,
-            session.sheet_names.len().saturating_sub(1)
+            name, final_idx
         ));
     } else {
         output::error("Failed to add sheet.");
@@ -1880,6 +1911,37 @@ fn cmd_name(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
 
 // ─── Table ────────────────────────────────────────────────────────────────────
 
+/// Resolves a table identifier (either a table ID or table name) to the actual table_id.
+/// Returns `Some(table_id)` on success, or `None` if no matching table is found.
+fn resolve_table_id(identifier: &str, engine: &EngineHandle, session: &CliSession) -> Option<String> {
+    let rid = session.rid.as_deref()?;
+    let sheet_id = session.get_active_sheet_id_or_default();
+    let fetch_req = rb::build_table_list_fetch(rid, &sheet_id);
+    let resp = engine.fetch_json(&fetch_req).ok()?;
+    let tables = rp::parse_table_list(&resp);
+
+    // First, check if the identifier matches a table_id directly
+    for t in &tables {
+        if t.table_id == identifier {
+            return Some(identifier.to_string());
+        }
+    }
+
+    // Otherwise, treat it as a table name and search by calling manage on each
+    for t in &tables {
+        let manage_req = rb::build_manage_table(rid, &t.table_id);
+        if let Ok(manage_resp) = engine.process_request_json(&manage_req) {
+            if let Some(info) = rp::parse_manage_table(&manage_resp) {
+                if info.table_name.eq_ignore_ascii_case(identifier) {
+                    return Some(t.table_id.clone());
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn cmd_table(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
     require_active!(session);
     if args.is_empty() {
@@ -1926,7 +1988,18 @@ fn table_list(engine: &EngineHandle, session: &CliSession) {
                 for (i, t) in tables.iter().enumerate() {
                     let start = format!("{}{}", cell_ref::col_to_letter(t.start_col), t.start_row + 1);
                     let end = format!("{}{}", cell_ref::col_to_letter(t.end_col), t.end_row + 1);
-                    output::line(&format!("  [{}] {}  ({}:{})", i, t.table_id, start, end), 0);
+                    // Try to fetch the table name via manage
+                    let name = {
+                        let manage_req = rb::build_manage_table(&rid, &t.table_id);
+                        engine.process_request_json(&manage_req).ok()
+                            .and_then(|resp| rp::parse_manage_table(&resp))
+                            .map(|info| info.table_name)
+                    };
+                    if let Some(ref name) = name {
+                        output::line(&format!("  [{}] {} ({})  ({}:{})", i, t.table_id, name, start, end), 0);
+                    } else {
+                        output::line(&format!("  [{}] {}  ({}:{})", i, t.table_id, start, end), 0);
+                    }
                 }
             }
         }
@@ -2007,26 +2080,38 @@ fn table_select(args: &[&str], engine: &EngineHandle, session: &mut CliSession) 
 
 fn table_delete(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
     if args.is_empty() {
-        output::error("Usage: table delete <tableId> [--keep-format]");
+        output::error("Usage: table delete <tableId|tableName> [--keep-format]");
         return;
     }
-    let table_id = args[0];
+    let table_id = match resolve_table_id(args[0], engine, session) {
+        Some(id) => id,
+        None => {
+            output::error(&format!("Table '{}' not found. Use 'table list' to see available tables.", args[0]));
+            return;
+        }
+    };
     let keep_format = args.iter().skip(1).any(|a| a.eq_ignore_ascii_case("--keep-format"));
     let rid = session.rid.as_deref().unwrap();
-    let request = rb::build_delete_table(rid, table_id, keep_format);
+    let request = rb::build_delete_table(rid, &table_id, keep_format);
     exec_status_cmd(engine, &request, session, &format!("Table '{}' deleted.", table_id));
 }
 
 fn table_rename(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
     if args.len() < 2 {
-        output::error("Usage: table rename <tableId> <newName>");
+        output::error("Usage: table rename <tableId|tableName> <newName>");
         return;
     }
-    let table_id = args[0];
+    let table_id = match resolve_table_id(args[0], engine, session) {
+        Some(id) => id,
+        None => {
+            output::error(&format!("Table '{}' not found. Use 'table list' to see available tables.", args[0]));
+            return;
+        }
+    };
     let new_name = args[1];
     let rid = session.rid.as_deref().unwrap();
     let sid = session.get_active_sheet_id_or_default();
-    let request = rb::build_change_table_name(rid, &sid, table_id, new_name);
+    let request = rb::build_change_table_name(rid, &sid, &table_id, new_name);
     exec_status_cmd(
         engine,
         &request,
@@ -2037,11 +2122,17 @@ fn table_rename(args: &[&str], engine: &EngineHandle, session: &mut CliSession) 
 
 fn table_options(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
     if args.len() < 3 {
-        output::error("Usage: table options <tableId> <settingType> <true|false>");
+        output::error("Usage: table options <tableId|tableName> <settingType> <true|false>");
         output::info("  Setting types: 0=header_row, 1=total_row, 2=banded_row, 3=banded_column, 4=first_column, 5=last_column, 6=filter_button");
         return;
     }
-    let table_id = args[0];
+    let table_id = match resolve_table_id(args[0], engine, session) {
+        Some(id) => id,
+        None => {
+            output::error(&format!("Table '{}' not found. Use 'table list' to see available tables.", args[0]));
+            return;
+        }
+    };
     let setting_type: i32 = match args[1].parse() {
         Ok(n) if (0..=6).contains(&n) => n,
         _ => {
@@ -2052,7 +2143,7 @@ fn table_options(args: &[&str], engine: &EngineHandle, session: &mut CliSession)
     let is_enabled = args[2].eq_ignore_ascii_case("true");
     let rid = session.rid.as_deref().unwrap();
     let sid = session.get_active_sheet_id_or_default();
-    let request = rb::build_change_table_options(rid, table_id, &sid, setting_type, is_enabled);
+    let request = rb::build_change_table_options(rid, &table_id, &sid, setting_type, is_enabled);
     let setting_names = [
         "header_row", "total_row", "banded_row", "banded_column",
         "first_column", "last_column", "filter_button",
@@ -2068,14 +2159,20 @@ fn table_options(args: &[&str], engine: &EngineHandle, session: &mut CliSession)
 
 fn table_source(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
     if args.len() < 2 {
-        output::error("Usage: table source <tableId> <range>");
+        output::error("Usage: table source <tableId|tableName> <range>");
         return;
     }
-    let table_id = args[0];
+    let table_id = match resolve_table_id(args[0], engine, session) {
+        Some(id) => id,
+        None => {
+            output::error(&format!("Table '{}' not found. Use 'table list' to see available tables.", args[0]));
+            return;
+        }
+    };
     let (sc, sr, ec, er) = parse_range_arg!(args[1]);
     let rid = session.rid.as_deref().unwrap();
     let sid = session.get_active_sheet_id_or_default();
-    let request = rb::build_change_table_source(rid, table_id, &sid, sr, sc, er, ec);
+    let request = rb::build_change_table_source(rid, &table_id, &sid, sr, sc, er, ec);
     exec_status_cmd(
         engine,
         &request,
@@ -2086,11 +2183,17 @@ fn table_source(args: &[&str], engine: &EngineHandle, session: &mut CliSession) 
 
 fn table_style(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
     if args.len() < 2 {
-        output::error("Usage: table style <tableId> <stylePattern> [--keep-format]");
+        output::error("Usage: table style <tableId|tableName> <stylePattern> [--keep-format]");
         output::info("  Style patterns: 0=none, 1-3=light, 4-8=medium, 9=dark");
         return;
     }
-    let table_id = args[0];
+    let table_id = match resolve_table_id(args[0], engine, session) {
+        Some(id) => id,
+        None => {
+            output::error(&format!("Table '{}' not found. Use 'table list' to see available tables.", args[0]));
+            return;
+        }
+    };
     let pattern: i32 = match args[1].parse() {
         Ok(n) if (0..=9).contains(&n) => n,
         _ => {
@@ -2100,7 +2203,7 @@ fn table_style(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
     };
     let keep_format = args.iter().skip(2).any(|a| a.eq_ignore_ascii_case("--keep-format"));
     let rid = session.rid.as_deref().unwrap();
-    let request = rb::build_change_table_style_pattern(rid, table_id, pattern, keep_format);
+    let request = rb::build_change_table_style_pattern(rid, &table_id, pattern, keep_format);
     exec_status_cmd(
         engine,
         &request,
@@ -2134,15 +2237,21 @@ fn table_default_style(args: &[&str], engine: &EngineHandle, session: &mut CliSe
 
 fn table_insert_row(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
     if args.len() < 2 {
-        output::error("Usage: table insertrow <tableId> <range> [--above]");
+        output::error("Usage: table insertrow <tableId|tableName> <range> [--above]");
         return;
     }
-    let table_id = args[0];
+    let table_id = match resolve_table_id(args[0], engine, session) {
+        Some(id) => id,
+        None => {
+            output::error(&format!("Table '{}' not found. Use 'table list' to see available tables.", args[0]));
+            return;
+        }
+    };
     let (sc, sr, ec, er) = parse_range_arg!(args[1]);
     let is_below = !args.iter().skip(2).any(|a| a.eq_ignore_ascii_case("--above"));
     let rid = session.rid.as_deref().unwrap();
     let sid = session.get_active_sheet_id_or_default();
-    let request = rb::build_insert_table_row(rid, table_id, &sid, sr, sc, er, ec, is_below);
+    let request = rb::build_insert_table_row(rid, &table_id, &sid, sr, sc, er, ec, is_below);
     let pos = if is_below { "below" } else { "above" };
     exec_status_cmd(
         engine,
@@ -2154,15 +2263,21 @@ fn table_insert_row(args: &[&str], engine: &EngineHandle, session: &mut CliSessi
 
 fn table_insert_col(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
     if args.len() < 2 {
-        output::error("Usage: table insertcol <tableId> <range> [--after]");
+        output::error("Usage: table insertcol <tableId|tableName> <range> [--after]");
         return;
     }
-    let table_id = args[0];
+    let table_id = match resolve_table_id(args[0], engine, session) {
+        Some(id) => id,
+        None => {
+            output::error(&format!("Table '{}' not found. Use 'table list' to see available tables.", args[0]));
+            return;
+        }
+    };
     let (sc, sr, ec, er) = parse_range_arg!(args[1]);
     let is_before = !args.iter().skip(2).any(|a| a.eq_ignore_ascii_case("--after"));
     let rid = session.rid.as_deref().unwrap();
     let sid = session.get_active_sheet_id_or_default();
-    let request = rb::build_insert_table_column(rid, table_id, &sid, sr, sc, er, ec, is_before);
+    let request = rb::build_insert_table_column(rid, &table_id, &sid, sr, sc, er, ec, is_before);
     let pos = if is_before { "before" } else { "after" };
     exec_status_cmd(
         engine,
@@ -2174,38 +2289,56 @@ fn table_insert_col(args: &[&str], engine: &EngineHandle, session: &mut CliSessi
 
 fn table_delete_row(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
     if args.len() < 2 {
-        output::error("Usage: table deleterow <tableId> <range>");
+        output::error("Usage: table deleterow <tableId|tableName> <range>");
         return;
     }
-    let table_id = args[0];
+    let table_id = match resolve_table_id(args[0], engine, session) {
+        Some(id) => id,
+        None => {
+            output::error(&format!("Table '{}' not found. Use 'table list' to see available tables.", args[0]));
+            return;
+        }
+    };
     let (sc, sr, ec, er) = parse_range_arg!(args[1]);
     let rid = session.rid.as_deref().unwrap();
     let sid = session.get_active_sheet_id_or_default();
-    let request = rb::build_delete_table_row(rid, table_id, &sid, sr, sc, er, ec);
+    let request = rb::build_delete_table_row(rid, &table_id, &sid, sr, sc, er, ec);
     exec_status_cmd(engine, &request, session, "Table row(s) deleted.");
 }
 
 fn table_delete_col(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
     if args.len() < 2 {
-        output::error("Usage: table deletecol <tableId> <range>");
+        output::error("Usage: table deletecol <tableId|tableName> <range>");
         return;
     }
-    let table_id = args[0];
+    let table_id = match resolve_table_id(args[0], engine, session) {
+        Some(id) => id,
+        None => {
+            output::error(&format!("Table '{}' not found. Use 'table list' to see available tables.", args[0]));
+            return;
+        }
+    };
     let (sc, sr, ec, er) = parse_range_arg!(args[1]);
     let rid = session.rid.as_deref().unwrap();
     let sid = session.get_active_sheet_id_or_default();
-    let request = rb::build_delete_table_column(rid, table_id, &sid, sr, sc, er, ec);
+    let request = rb::build_delete_table_column(rid, &table_id, &sid, sr, sc, er, ec);
     exec_status_cmd(engine, &request, session, "Table column(s) deleted.");
 }
 
 fn table_manage(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
     if args.is_empty() {
-        output::error("Usage: table manage <tableId>");
+        output::error("Usage: table manage <tableId|tableName>");
         return;
     }
-    let table_id = args[0];
+    let table_id = match resolve_table_id(args[0], engine, session) {
+        Some(id) => id,
+        None => {
+            output::error(&format!("Table '{}' not found. Use 'table list' to see available tables.", args[0]));
+            return;
+        }
+    };
     let rid = session.rid.as_deref().unwrap();
-    let request = rb::build_manage_table(rid, table_id);
+    let request = rb::build_manage_table(rid, &table_id);
     match engine.process_request_json(&request) {
         Ok(resp) => {
             if let Some(info) = rp::parse_manage_table(&resp) {
@@ -2222,7 +2355,7 @@ fn table_manage(args: &[&str], engine: &EngineHandle, session: &mut CliSession) 
                     cell_ref::to_ref(info.source_end_col, info.source_end_row)
                 );
                 output::line(&format!("Table: {}", info.table_name), 0);
-                output::key_value("Table ID", table_id, 2);
+                output::key_value("Table ID", &table_id, 2);
                 output::key_value("Source", &range_display, 2);
                 output::key_value("Style", &format!("{} ({})", info.table_style_type, info.table_color_pattern), 2);
                 output::line("  Options:", 0);
@@ -2276,7 +2409,7 @@ use parse_range_arg;
 fn cmd_format(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
     require_active!(session);
     if args.is_empty() {
-        output::error("Usage: format <bold|italic|underline|doubleunderline|strikethrough|superscript|subscript|fontsize|fontcolor> <range> ...");
+        output::error("Usage: format <bold|italic|underline|doubleunderline|strikethrough|superscript|subscript|fontsize|fontcolor|halign|valign|textwrap|rotate|indent|fillcolor|border|numformat|decimal|numpreview|numinfo|nummanage|customformat|default> <range> ...");
         return;
     }
     let sub = args[0].to_lowercase();
@@ -2291,8 +2424,34 @@ fn cmd_format(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
         "subscript" => cmd_format_bool_toggle(rest, engine, session, "subscript"),
         "fontsize" => cmd_format_font_size(rest, engine, session),
         "fontcolor" => cmd_format_font_color(rest, engine, session),
+        "halign" => cmd_format_halign(rest, engine, session),
+        "valign" => cmd_format_valign(rest, engine, session),
+        "textwrap" => cmd_format_wrap(rest, engine, session),
+        "rotate" => cmd_format_rotate(rest, engine, session),
+        "indent" => cmd_format_indent(rest, engine, session),
+        "fillcolor" => cmd_format_fill_color(rest, engine, session),
+        "border" => cmd_format_border(rest, engine, session),
+        "numformat" => {
+            // Handle --list-custom as the canonical way to list saved custom formats
+            if rest.first().map(|a| *a == "--list-custom").unwrap_or(false) {
+                cmd_format_list_custom(engine, session);
+            } else if rest.first().map(|a| *a == "--list-currency").unwrap_or(false) {
+                cmd_format_list_currency();
+            } else {
+                cmd_format_numformat(rest, engine, session);
+            }
+        }
+        "decimal" => cmd_format_decimal(rest, engine, session),
+        "numpreview" => cmd_format_numpreview(rest, engine, session),
+        "numinfo" => cmd_format_numinfo(rest, engine, session),
+        "nummanage" => cmd_format_nummanage(engine, session),
+        "customformat" => {
+            output::info("Warning: 'format customformat' is deprecated. Use 'format numformat --list-custom' instead.");
+            cmd_format_list_custom(engine, session);
+        }
+        "default" => cmd_format_default(rest, engine, session),
         _ => {
-            output::error(&format!("Unknown format sub-command: '{}'. Use: bold, italic, underline, doubleunderline, strikethrough, superscript, subscript, fontsize, fontcolor.", sub));
+            output::error(&format!("Unknown format sub-command: '{}'. Use: bold, italic, underline, doubleunderline, strikethrough, superscript, subscript, fontsize, fontcolor, halign, valign, textwrap, rotate, indent, fillcolor, border, numformat, decimal, numpreview, numinfo, nummanage, customformat, default.", sub));
         }
     }
 }
@@ -2386,6 +2545,778 @@ fn cmd_format_font_color(args: &[&str], engine: &EngineHandle, session: &mut Cli
     exec_status_cmd(engine, &request, session, &format!("Font color set to ({},{},{}) on {}.", r, g, b, args[0].to_uppercase()));
 }
 
+fn cmd_format_halign(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: format halign <range> <general|left|center|right|fill|justify|centeracross|distributed>");
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let alignment_type = match args[1].to_lowercase().as_str() {
+        "general" => 1,
+        "left" => 2,
+        "center" => 3,
+        "right" => 4,
+        "fill" => 5,
+        "justify" => 6,
+        "centeracross" => 7,
+        "distributed" => 8,
+        _ => {
+            output::error(&format!("Invalid alignment '{}'. Use: general, left, center, right, fill, justify, centeracross, distributed.", args[1]));
+            return;
+        }
+    };
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_horizontal_alignment(rid, &sid, alignment_type, sr, sc, er, ec);
+    exec_status_cmd(engine, &request, session, &format!("Horizontal alignment set to '{}' on {}.", args[1].to_lowercase(), args[0].to_uppercase()));
+}
+
+fn cmd_format_valign(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: format valign <range> <top|center|bottom|justify|distributed>");
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let alignment_type = match args[1].to_lowercase().as_str() {
+        "top" => 1,
+        "center" => 2,
+        "bottom" => 3,
+        "justify" => 4,
+        "distributed" => 5,
+        _ => {
+            output::error(&format!("Invalid alignment '{}'. Use: top, center, bottom, justify, distributed.", args[1]));
+            return;
+        }
+    };
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_vertical_alignment(rid, &sid, alignment_type, sr, sc, er, ec);
+    exec_status_cmd(engine, &request, session, &format!("Vertical alignment set to '{}' on {}.", args[1].to_lowercase(), args[0].to_uppercase()));
+}
+
+fn cmd_format_wrap(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: format textwrap <range> <overflow|clip|wrap|shrink>");
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let wrap_type = match args[1].to_lowercase().as_str() {
+        "overflow" => 1,
+        "clip" => 2,
+        "wrap" => 3,
+        "shrink" => 4,
+        _ => {
+            output::error(&format!("Invalid wrap type '{}'. Use: overflow, clip, wrap, shrink.", args[1]));
+            return;
+        }
+    };
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_wrap_text(rid, &sid, wrap_type, sr, sc, er, ec);
+    exec_status_cmd(engine, &request, session, &format!("Wrap text set to '{}' on {}.", args[1].to_lowercase(), args[0].to_uppercase()));
+}
+
+fn cmd_format_rotate(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: format rotate <range> <angle>  (angle: -90 to 90)");
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let angle = match args[1].parse::<i32>() {
+        Ok(v) if (-90..=90).contains(&v) => v,
+        _ => {
+            output::error(&format!("Invalid angle '{}'. Must be between -90 and 90.", args[1]));
+            return;
+        }
+    };
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_text_rotation(rid, &sid, angle, sr, sc, er, ec);
+    exec_status_cmd(engine, &request, session, &format!("Text rotation set to {}° on {}.", angle, args[0].to_uppercase()));
+}
+
+fn cmd_format_indent(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: format indent <range> <increase|decrease>");
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = match args[1].to_lowercase().as_str() {
+        "increase" | "inc" | "+" => rb::build_increase_indent(rid, &sid, sr, sc, er, ec),
+        "decrease" | "dec" | "-" => rb::build_decrease_indent(rid, &sid, sr, sc, er, ec),
+        _ => {
+            output::error(&format!("Invalid indent direction '{}'. Use: increase, decrease.", args[1]));
+            return;
+        }
+    };
+    exec_status_cmd(engine, &request, session, &format!("Indent {} on {}.", args[1].to_lowercase(), args[0].to_uppercase()));
+}
+
+fn cmd_format_fill_color(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.is_empty() {
+        output::error("Usage: format fillcolor <range> <r> <g> <b>  OR  format fillcolor <range> --none");
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+
+    if args.len() >= 2 && args[1].eq_ignore_ascii_case("--none") {
+        let request = rb::build_fill_color_none(rid, &sid, sr, sc, er, ec);
+        exec_status_cmd(engine, &request, session, &format!("Fill color removed on {}.", args[0].to_uppercase()));
+        return;
+    }
+
+    if args.len() < 4 {
+        output::error("Usage: format fillcolor <range> <r> <g> <b>  OR  format fillcolor <range> --none");
+        return;
+    }
+    let parse_channel = |s: &str, name: &str| -> Result<i32, ()> {
+        match s.parse::<i32>() {
+            Ok(v) if (0..=255).contains(&v) => Ok(v),
+            _ => {
+                output::error(&format!("Invalid {} value '{}'. Must be 0-255.", name, s));
+                Err(())
+            }
+        }
+    };
+    let r = match parse_channel(args[1], "red") { Ok(v) => v, Err(_) => return };
+    let g = match parse_channel(args[2], "green") { Ok(v) => v, Err(_) => return };
+    let b = match parse_channel(args[3], "blue") { Ok(v) => v, Err(_) => return };
+    let request = rb::build_fill_color_rgb(rid, &sid, r, g, b, sr, sc, er, ec);
+    exec_status_cmd(engine, &request, session, &format!("Fill color set to ({},{},{}) on {}.", r, g, b, args[0].to_uppercase()));
+}
+
+fn cmd_format_border(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 3 {
+        output::error("Usage: format border <range> <type> <style> [r g b]\n  type: all|outer|inner|left|right|top|bottom|horizontal|vertical|diagonal\n  style: none|thin|medium|dashed|dotted|thick|double|hair|mediumdashed|dashdot|mediumdashdot|dashdotdot|mediumdashdotdot|slantdashdot");
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let border_type = match args[1].to_lowercase().as_str() {
+        "all" => 101,
+        "outer" => 102,
+        "inner" => 103,
+        "left" => 104,
+        "right" => 105,
+        "top" => 106,
+        "bottom" => 107,
+        "horizontal" => 108,
+        "vertical" => 109,
+        "diagonal" => 110,
+        _ => {
+            output::error(&format!("Invalid border type '{}'. Use: all, outer, inner, left, right, top, bottom, horizontal, vertical, diagonal.", args[1]));
+            return;
+        }
+    };
+    let border_line_style = match args[2].to_lowercase().as_str() {
+        "none" => 1,
+        "thin" => 2,
+        "medium" => 3,
+        "dashed" => 4,
+        "dotted" => 5,
+        "thick" => 6,
+        "double" => 7,
+        "hair" => 8,
+        "mediumdashed" => 9,
+        "dashdot" => 10,
+        "mediumdashdot" => 11,
+        "dashdotdot" => 12,
+        "mediumdashdotdot" => 13,
+        "slantdashdot" => 14,
+        _ => {
+            output::error(&format!("Invalid border style '{}'. Use: none, thin, medium, dashed, dotted, thick, double, hair, mediumdashed, dashdot, mediumdashdot, dashdotdot, mediumdashdotdot, slantdashdot.", args[2]));
+            return;
+        }
+    };
+    // Default to black if no color specified
+    let (r, g, b) = if args.len() >= 6 {
+        let parse_channel = |s: &str, name: &str| -> Result<i32, ()> {
+            match s.parse::<i32>() {
+                Ok(v) if (0..=255).contains(&v) => Ok(v),
+                _ => {
+                    output::error(&format!("Invalid {} value '{}'. Must be 0-255.", name, s));
+                    Err(())
+                }
+            }
+        };
+        let r = match parse_channel(args[3], "red") { Ok(v) => v, Err(_) => return };
+        let g = match parse_channel(args[4], "green") { Ok(v) => v, Err(_) => return };
+        let b = match parse_channel(args[5], "blue") { Ok(v) => v, Err(_) => return };
+        (r, g, b)
+    } else {
+        (0, 0, 0)
+    };
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_set_border(rid, &sid, border_type, border_line_style, r, g, b, sr, sc, er, ec);
+    exec_status_cmd(engine, &request, session, &format!("Border '{}' with style '{}' set on {}.", args[1].to_lowercase(), args[2].to_lowercase(), args[0].to_uppercase()));
+}
+
+// ─── Number formatting commands ──────────────────────────────────────────────
+
+fn cmd_format_numformat(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: format numformat <range> <type> [format_text | --flags...]\n  type: general|number|currency|accounting|date|time|duration|percentage|scientific|fraction|text|custom\n  Use --decimals, --leading-zeros, --negative, --currency, --digits etc. for parameterized patterns.\n  Use 'format numformat --list-custom' to list saved custom formats.");
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let type_str = args[1].to_lowercase();
+    let number_format_type = match type_str.as_str() {
+        "general" => 1,
+        "number" => 2,
+        "currency" => 3,
+        "accounting" => 4,
+        "date" => 5,
+        "time" => 6,
+        "duration" => 7,
+        "percentage" => 8,
+        "scientific" => 9,
+        "fraction" => 10,
+        "text" => 11,
+        "custom" => 13,
+        _ => {
+            output::error(&format!("Invalid number format type '{}'. Use: general, number, currency, accounting, date, time, duration, percentage, scientific, fraction, text, custom.", args[1]));
+            return;
+        }
+    };
+
+    let format_text = resolve_numformat_text(&type_str, &args[2..]);
+    let format_text = match format_text {
+        Ok(f) => f,
+        Err(e) => { output::error(&e); return; }
+    };
+
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_apply_number_format(rid, &sid, &format_text, number_format_type, sr, sc, er, ec);
+    exec_status_cmd(engine, &request, session, &format!("Number format '{}' ({}) applied to {}.", format_text, type_str, args[0].to_uppercase()));
+}
+
+/// Shared logic to resolve format_text from args — supports flags, numbered shortcuts, and raw patterns.
+fn resolve_numformat_text(type_str: &str, rest: &[&str]) -> Result<String, String> {
+    // Types that need no format_text
+    match type_str {
+        "general" => return Ok(String::from("General")),
+        "text" => return Ok(String::from("@")),
+        _ => {}
+    }
+
+    // Detect if flags and a positional shortcut are both present (ambiguous mix)
+    let has_flags = rest.iter().any(|a| a.starts_with("--"));
+    let has_positional_shortcut = rest.first()
+        .map(|a| !a.starts_with("--") && a.parse::<u32>().is_ok())
+        .unwrap_or(false);
+    if has_flags && has_positional_shortcut {
+        return Err(String::from(
+            "Cannot combine shortcut index with flags. Use one or the other.\n  Example (shortcut): format numformat A1 number 2\n  Example (flags):    format numformat A1 number --decimals 2"
+        ));
+    }
+
+    // Check if flags are present (parameterized mode)
+    if let Some(params) = numformat::parse_flags(rest) {
+        return numformat::generate_pattern(type_str, &params);
+    }
+
+    // Accounting default when no args
+    if type_str == "accounting" && rest.is_empty() {
+        return Ok(String::from("_(* #,##0.00_);_(* (#,##0.00);_(* \"-\"??_);_(@_)"));
+    }
+
+    // Require format_text for other types
+    if rest.is_empty() {
+        return Err(format!("Type '{}' requires a format_text argument or --flags. Use 'help' to see options.", type_str));
+    }
+
+    let raw = rest.join(" ");
+    // Currency/accounting: resolve locale key to actual format pattern
+    // The engine does NOT resolve locale keys — it treats format_text as a literal pattern.
+    if type_str == "currency" && !raw.starts_with("--") {
+        return Ok(numformat::resolve_currency_locale(raw.trim()));
+    }
+    if type_str == "accounting" && !raw.starts_with("--") {
+        return Ok(numformat::resolve_accounting_locale(raw.trim()));
+    }
+    let raw = raw;
+    // Resolve numbered shortcuts for common types
+    let resolved = match type_str {
+        "number" => match raw.as_str() {
+            "1" => String::from("#,##0"),
+            "2" => String::from("#,##0.00"),
+            "3" => String::from("#0"),
+            "4" => String::from("#0.00"),
+            _ => raw,
+        },
+        "date" => match raw.as_str() {
+            "1" => String::from("dddd, d mmmm, yyyy"),
+            "2" => String::from("d mmmm yyyy"),
+            "3" => String::from("dd-mmm-yyyy"),
+            "4" => String::from("dd/mm/yy"),
+            _ => raw,
+        },
+        "time" => match raw.as_str() {
+            "1" => String::from("h:mm:ss"),
+            "2" => String::from("h:mm:ss AM/PM"),
+            _ => raw,
+        },
+        "duration" => match raw.as_str() {
+            "1" => String::from("[hh]:mm:ss"),
+            "2" => String::from("[hh]:mm"),
+            "3" => String::from("[hh]"),
+            "4" => String::from("[mm]"),
+            "5" => String::from("[ss]"),
+            _ => raw,
+        },
+        "percentage" => match raw.as_str() {
+            "1" => String::from("0%"),
+            "2" => String::from("0.00%"),
+            _ => raw,
+        },
+        "scientific" => match raw.as_str() {
+            "1" => String::from("0.00E+00"),
+            "2" => String::from("0.0E+00"),
+            _ => raw,
+        },
+        "fraction" => match raw.as_str() {
+            "1" => String::from("# ?/?"),
+            "2" => String::from("# ??/??"),
+            _ => raw,
+        },
+        _ => raw,
+    };
+    Ok(resolved)
+}
+
+fn cmd_format_decimal(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: format decimal <range> <increase|decrease>");
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    match args[1].to_lowercase().as_str() {
+        "increase" => {
+            let request = rb::build_increase_decimal(rid, &sid, sr, sc, er, ec);
+            exec_status_cmd(engine, &request, session, &format!("Decimal places increased on {}.", args[0].to_uppercase()));
+        }
+        "decrease" => {
+            let request = rb::build_decrease_decimal(rid, &sid, sr, sc, er, ec);
+            exec_status_cmd(engine, &request, session, &format!("Decimal places decreased on {}.", args[0].to_uppercase()));
+        }
+        _ => {
+            output::error(&format!("Invalid decimal direction '{}'. Use: increase, decrease.", args[1]));
+        }
+    }
+}
+
+fn cmd_format_numpreview(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.len() < 2 {
+        output::error("Usage: format numpreview <cellRef|range> <type> [format_text | --flags...]\n  type: general|number|currency|accounting|date|time|duration|percentage|scientific|fraction|text|custom\n  Accepts a single cell (A1) or range (A1:B5); preview uses the first cell.");
+        return;
+    }
+    // Accept both single cell refs and ranges; use the top-left cell for preview
+    let (col, row) = if let Some(p) = cell_ref::try_parse(args[0]) {
+        p
+    } else if let Some((sc, sr, _ec, _er)) = cell_ref::try_parse_range(args[0]) {
+        (sc, sr)
+    } else {
+        output::error(&format!("Invalid cell reference or range: '{}'", args[0]));
+        return;
+    };
+    let type_str = args[1].to_lowercase();
+    let number_format_type = match type_str.as_str() {
+        "general" => 1,
+        "number" => 2,
+        "currency" => 3,
+        "accounting" => 4,
+        "date" => 5,
+        "time" => 6,
+        "duration" => 7,
+        "percentage" => 8,
+        "scientific" => 9,
+        "fraction" => 10,
+        "text" => 11,
+        "custom" => 13,
+        _ => {
+            output::error(&format!("Invalid number format type '{}'. Use: general, number, currency, accounting, date, time, duration, percentage, scientific, fraction, text, custom.", args[1]));
+            return;
+        }
+    };
+    let format_text = resolve_numformat_text(&type_str, &args[2..]);
+    let format_text = match format_text {
+        Ok(f) => f,
+        Err(e) => { output::error(&e); return; }
+    };
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_preview_number_format(rid, &sid, &format_text, number_format_type, row, col);
+    match engine.process_request_json(&request) {
+        Ok(resp) => {
+            let v: serde_json::Value = match serde_json::from_str(&resp) {
+                Ok(v) => v,
+                Err(e) => { output::error(&format!("Failed to parse response: {}", e)); return; }
+            };
+            if let Some(response) = v.get("response") {
+                let preview = response.get("preview_for_selected_format")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(none)");
+                let valid = response.get("is_pattern_valid")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let resolved_format = response.get("format_text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                output::success("Number format preview:");
+                output::key_value("Format", resolved_format, 2);
+                output::key_value("Valid", if valid { "yes" } else { "no" }, 2);
+                output::key_value("Preview", preview, 2);
+            } else {
+                let status = rp::parse_status_response(&resp);
+                output::error(&format!("Preview failed: {}", status.status_message.unwrap_or_else(|| "engine error".into())));
+            }
+        }
+        Err(e) => output::error(&format!("Engine error: {}", e)),
+    }
+}
+
+fn cmd_format_numinfo(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.is_empty() {
+        output::error("Usage: format numinfo <cellRef>");
+        return;
+    }
+    let (col, row) = match cell_ref::try_parse(args[0]) {
+        Some(p) => p,
+        None => { output::error(&format!("Invalid cell reference: '{}'", args[0])); return; }
+    };
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    let request = rb::build_get_number_format_info(rid, &sid, row, col);
+    match engine.process_request_json(&request) {
+        Ok(resp) => {
+            let v: serde_json::Value = match serde_json::from_str(&resp) {
+                Ok(v) => v,
+                Err(e) => { output::error(&format!("Failed to parse response: {}", e)); return; }
+            };
+            if let Some(response) = v.get("response") {
+                let format_text = response.get("format_text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(none)");
+                let format_type = response.get("number_format_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("UNKNOWN");
+                let decimal_places = response.get("decimal_places")
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "N/A".to_string());
+                let leading_zeroes = response.get("leading_zeroes")
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "N/A".to_string());
+                output::success(&format!("Number format info for {}:", args[0].to_uppercase()));
+                output::key_value("Format text", format_text, 2);
+                output::key_value("Format type", format_type, 2);
+                output::key_value("Decimal places", &decimal_places, 2);
+                output::key_value("Leading zeroes", &leading_zeroes, 2);
+            } else {
+                let status = rp::parse_status_response(&resp);
+                output::error(&format!("Get number format info failed: {}", status.status_message.unwrap_or_else(|| "engine error".into())));
+            }
+        }
+        Err(e) => output::error(&format!("Engine error: {}", e)),
+    }
+}
+
+fn cmd_format_nummanage(_engine: &EngineHandle, _session: &mut CliSession) {
+    output::success("Built-in number format types and shortcuts:");
+    output::info("");
+    output::info("  general       (no shortcuts) — Displays as entered");
+    output::info("  number        1: #,##0    2: #,##0.00    3: #0    4: #0.00");
+    output::info("                Flags: --decimals, --noseparator, --leading-zeros, --negative, --prefix, --suffix");
+    output::info("  currency      Locale key, e.g.: en-US  en-IN  en-GB  en-JP");
+    output::info("                Flags: --currency, --decimals, --negative");
+    output::info("  accounting    Default: _(* #,##0.00_);_(* (#,##0.00);_(* \"-\"??_);_(@_)");
+    output::info("                Flags: --currency, --decimals, --negative");
+    output::info("  date          1: dddd, d mmmm, yyyy   2: d mmmm yyyy");
+    output::info("                3: dd-mmm-yyyy           4: dd/mm/yy");
+    output::info("                Flags: --date");
+    output::info("  time          1: h:mm:ss              2: h:mm:ss AM/PM");
+    output::info("                Flags: --time");
+    output::info("  duration      1: [hh]:mm:ss  2: [hh]:mm  3: [hh]  4: [mm]  5: [ss]");
+    output::info("  percentage    1: 0%          2: 0.00%");
+    output::info("                Flags: --decimals");
+    output::info("  scientific    1: 0.00E+00    2: 0.0E+00");
+    output::info("                Flags: --decimals");
+    output::info("  fraction      1: # ?/?       2: # ??/??");
+    output::info("                Flags: --digits");
+    output::info("  text          (no shortcuts) — Displays as text (@)");
+    output::info("  custom        <raw_pattern>  — Any format string");
+    output::info("                Flags: --date, --time, --prefix, --suffix");
+    output::info("");
+    output::info("  Use 'format numformat --list-custom' to see saved custom formats.");
+    output::info("  Use 'format numformat --list-currency' to see supported currency codes.");
+}
+
+fn cmd_format_list_currency() {
+    output::success("Supported currency country codes:");
+    output::info("  Usage: format numformat <range> currency <code>");
+    output::info("");
+    output::info("  en-US       US Dollar ($)");
+    output::info("  en-GB       British Pound (£)");
+    output::info("  en-IN       Indian Rupee (₹)");
+    output::info("  en-CA       Canadian Dollar (C$)");
+    output::info("  en-AU       Australian Dollar (A$)");
+    output::info("  de-DE       Euro (€)");
+    output::info("  fr-FR       Euro (€)");
+    output::info("  ja-JP       Japanese Yen (¥)");
+    output::info("  zh-CN       Chinese Yuan (¥)");
+    output::info("  ko-KR       Korean Won (₩)");
+    output::info("  pt-BR       Brazilian Real (R$)");
+    output::info("  es-MX       Mexican Peso (MX$)");
+    output::info("  ru-RU       Russian Ruble (₽)");
+    output::info("  ar-SA       Saudi Riyal (﷼)");
+    output::info("  en-ZA       South African Rand (R)");
+}
+
+fn cmd_format_list_custom(engine: &EngineHandle, session: &mut CliSession) {
+    let rid = session.rid.as_deref().unwrap();
+    let request = rb::build_manage_custom_format(rid);
+    match engine.process_request_json(&request) {
+        Ok(resp) => {
+            let v: serde_json::Value = match serde_json::from_str(&resp) {
+                Ok(v) => v,
+                Err(e) => { output::error(&format!("Failed to parse response: {}", e)); return; }
+            };
+            if let Some(response) = v.get("response") {
+                output::success("Custom number formats:");
+                if let Some(user_formats) = response.get("user_level_custom_format").and_then(|v| v.as_array()) {
+                    if user_formats.is_empty() {
+                        output::key_value("User formats", "(none)", 2);
+                    } else {
+                        output::key_value("User formats", &format!("{}", user_formats.len()), 2);
+                        for f in user_formats {
+                            if let Some(s) = f.as_str() {
+                                output::info(&format!("    {}", s));
+                            }
+                        }
+                    }
+                }
+                if let Some(doc_formats) = response.get("document_level_custom_format").and_then(|v| v.as_array()) {
+                    if doc_formats.is_empty() {
+                        output::key_value("Document formats", "(none)", 2);
+                    } else {
+                        output::key_value("Document formats", &format!("{}", doc_formats.len()), 2);
+                        for f in doc_formats {
+                            if let Some(s) = f.as_str() {
+                                output::info(&format!("    {}", s));
+                            }
+                        }
+                    }
+                }
+            } else {
+                let status = rp::parse_status_response(&resp);
+                output::error(&format!("Manage custom format failed: {}", status.status_message.unwrap_or_else(|| "engine error".into())));
+            }
+        }
+        Err(e) => output::error(&format!("Engine error: {}", e)),
+    }
+}
+
+fn cmd_format_default(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
+    if args.is_empty() || (args.len() == 1 && args[0] == "--help") {
+        output::info("Usage: format default <range> [--flags...]");
+        output::info("  Sets the default cell format for the specified range.");
+        output::info("  Does not affect existing cell-level overrides.");
+        output::info("");
+        output::info("  Flags:");
+        output::info("    --font-name NAME           Font name (e.g. Arial, Calibri)");
+        output::info("    --font-size N              Font size in points");
+        output::info("    --bold true|false          Bold text");
+        output::info("    --italic true|false        Italic text");
+        output::info("    --underline true|false     Underline text");
+        output::info("    --font-color R G B         Font color (RGB 0-255)");
+        output::info("    --fill-color R G B         Fill/background color (RGB 0-255)");
+        output::info("    --halign TYPE              Horizontal alignment: left|center|right|justify");
+        output::info("    --valign TYPE              Vertical alignment: top|center|bottom");
+        output::info("    --wrap true|false          Text wrap");
+        output::info("");
+        output::info("  Examples:");
+        output::info("    format default A1:Z100 --font-name Arial --font-size 11 --bold false");
+        output::info("    format default A1:Z100 --fill-color 255 255 255 --halign center");
+        return;
+    }
+    let (sc, sr, ec, er) = parse_range_arg!(args[0]);
+    let rest = &args[1..];
+
+    // Backward compatibility: detect raw JSON input
+    let rest_joined = rest.join(" ");
+    let trimmed = rest_joined.trim();
+    if trimmed.starts_with('{') {
+        output::info("Warning: JSON input for 'format default' is deprecated. Use structured flags instead. See 'format default --help'.");
+        let mut format_json: serde_json::Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(e) => {
+                output::error(&format!("Invalid JSON: {}.", e));
+                return;
+            }
+        };
+        let rid = session.rid.as_deref().unwrap();
+        let sid = session.get_active_sheet_id_or_default();
+        format_json["active_info"] = serde_json::json!({
+            "active_sheet_id": sid,
+            "active_cell": { "active_row": sr, "active_column": sc },
+            "active_range_list": [{ "start_row": sr, "end_row": er, "start_column": sc, "end_column": ec }]
+        });
+        let request = rb::build_default_format(rid, format_json);
+        exec_status_cmd(engine, &request, session, &format!("Default format applied to {}.", args[0].to_uppercase()));
+        return;
+    }
+
+    // Parse structured flags
+    if rest.is_empty() {
+        output::error("No flags provided. Run 'format default --help' to see supported flags.");
+        return;
+    }
+
+    let mut font_obj = serde_json::Map::new();
+    let mut alignment_obj = serde_json::Map::new();
+    let mut fill_obj = serde_json::Map::new();
+    let mut has_font = false;
+    let mut has_alignment = false;
+    let mut has_fill = false;
+
+    let mut i = 0;
+    while i < rest.len() {
+        match rest[i] {
+            "--font-name" => {
+                i += 1;
+                if i >= rest.len() { output::error("--font-name requires a value."); return; }
+                font_obj.insert("font_name".to_string(), serde_json::Value::String(rest[i].to_string()));
+                has_font = true;
+            }
+            "--font-size" => {
+                i += 1;
+                if i >= rest.len() { output::error("--font-size requires a value."); return; }
+                let size: i64 = match rest[i].parse() {
+                    Ok(v) => v,
+                    Err(_) => { output::error(&format!("Invalid font size: '{}'", rest[i])); return; }
+                };
+                font_obj.insert("font_size".to_string(), serde_json::json!(size));
+                has_font = true;
+            }
+            "--bold" => {
+                i += 1;
+                if i >= rest.len() { output::error("--bold requires true|false."); return; }
+                let v = parse_bool_flag(rest[i], "--bold");
+                match v { Ok(b) => { font_obj.insert("is_bold".to_string(), serde_json::json!(b)); has_font = true; }, Err(e) => { output::error(&e); return; } }
+            }
+            "--italic" => {
+                i += 1;
+                if i >= rest.len() { output::error("--italic requires true|false."); return; }
+                let v = parse_bool_flag(rest[i], "--italic");
+                match v { Ok(b) => { font_obj.insert("is_italic".to_string(), serde_json::json!(b)); has_font = true; }, Err(e) => { output::error(&e); return; } }
+            }
+            "--underline" => {
+                i += 1;
+                if i >= rest.len() { output::error("--underline requires true|false."); return; }
+                let v = parse_bool_flag(rest[i], "--underline");
+                match v { Ok(b) => { font_obj.insert("is_underline".to_string(), serde_json::json!(b)); has_font = true; }, Err(e) => { output::error(&e); return; } }
+            }
+            "--font-color" => {
+                if i + 3 >= rest.len() { output::error("--font-color requires R G B values (0-255)."); return; }
+                let r: i64 = rest[i+1].parse().unwrap_or(-1);
+                let g: i64 = rest[i+2].parse().unwrap_or(-1);
+                let b: i64 = rest[i+3].parse().unwrap_or(-1);
+                if r < 0 || r > 255 || g < 0 || g > 255 || b < 0 || b > 255 {
+                    output::error("--font-color RGB values must be 0-255."); return;
+                }
+                font_obj.insert("font_color".to_string(), serde_json::json!({"r": r, "g": g, "b": b}));
+                has_font = true;
+                i += 3;
+            }
+            "--fill-color" => {
+                if i + 3 >= rest.len() { output::error("--fill-color requires R G B values (0-255)."); return; }
+                let r: i64 = rest[i+1].parse().unwrap_or(-1);
+                let g: i64 = rest[i+2].parse().unwrap_or(-1);
+                let b: i64 = rest[i+3].parse().unwrap_or(-1);
+                if r < 0 || r > 255 || g < 0 || g > 255 || b < 0 || b > 255 {
+                    output::error("--fill-color RGB values must be 0-255."); return;
+                }
+                fill_obj.insert("bg_color".to_string(), serde_json::json!({"r": r, "g": g, "b": b}));
+                has_fill = true;
+                i += 3;
+            }
+            "--halign" => {
+                i += 1;
+                if i >= rest.len() { output::error("--halign requires a value."); return; }
+                let align_type: i32 = match rest[i].to_lowercase().as_str() {
+                    "left" => 2,
+                    "center" => 3,
+                    "right" => 4,
+                    "justify" => 6,
+                    _ => { output::error(&format!("Invalid --halign value '{}'. Use: left, center, right, justify.", rest[i])); return; }
+                };
+                alignment_obj.insert("horizontal_alignment_type".to_string(), serde_json::json!(align_type));
+                has_alignment = true;
+            }
+            "--valign" => {
+                i += 1;
+                if i >= rest.len() { output::error("--valign requires a value."); return; }
+                let align_type: i32 = match rest[i].to_lowercase().as_str() {
+                    "top" => 1,
+                    "center" => 2,
+                    "bottom" => 3,
+                    _ => { output::error(&format!("Invalid --valign value '{}'. Use: top, center, bottom.", rest[i])); return; }
+                };
+                alignment_obj.insert("vertical_alignment_type".to_string(), serde_json::json!(align_type));
+                has_alignment = true;
+            }
+            "--wrap" => {
+                i += 1;
+                if i >= rest.len() { output::error("--wrap requires true|false."); return; }
+                let v = parse_bool_flag(rest[i], "--wrap");
+                match v { Ok(b) => { alignment_obj.insert("is_text_wrap".to_string(), serde_json::json!(b)); has_alignment = true; }, Err(e) => { output::error(&e); return; } }
+            }
+            other => {
+                output::error(&format!("Unknown flag '{}' for format default. Run 'format default --help' to see supported flags.", other));
+                return;
+            }
+        }
+        i += 1;
+    }
+
+    let mut format_json = serde_json::json!({});
+    if has_font {
+        format_json["font"] = serde_json::Value::Object(font_obj);
+    }
+    if has_alignment {
+        format_json["alignment"] = serde_json::Value::Object(alignment_obj);
+    }
+    if has_fill {
+        format_json["fill"] = serde_json::Value::Object(fill_obj);
+    }
+
+    let rid = session.rid.as_deref().unwrap();
+    let sid = session.get_active_sheet_id_or_default();
+    format_json["active_info"] = serde_json::json!({
+        "active_sheet_id": sid,
+        "active_cell": { "active_row": sr, "active_column": sc },
+        "active_range_list": [{ "start_row": sr, "end_row": er, "start_column": sc, "end_column": ec }]
+    });
+    let request = rb::build_default_format(rid, format_json);
+    exec_status_cmd(engine, &request, session, &format!("Default format applied to {}.", args[0].to_uppercase()));
+}
+
+fn parse_bool_flag(value: &str, flag_name: &str) -> Result<bool, String> {
+    match value.to_lowercase().as_str() {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(format!("Invalid value '{}' for {}. Use: true, false.", value, flag_name)),
+    }
+}
+
 /// Execute a ProcessRequestJson call, check status, and print success/error.
 fn exec_status_cmd(
     engine: &EngineHandle,
@@ -2427,7 +3358,7 @@ fn print_help() {
     output::info("  worksheet switch <name|index>    Switch the active sheet");
     output::info("  worksheet add <name>             Add a new sheet");
     output::info("  worksheet delete <name|index>    Delete a sheet");
-    output::info("  worksheet rename <name>          Rename the active sheet");
+    output::info("  worksheet rename <old_name> <new_name>  Rename a sheet");
     output::info("  worksheet reorder <position>     Move active sheet to position (0-based)");
     output::info("  worksheet duplicate              Duplicate the active sheet");
     output::info("  worksheet hide [name|index]      Hide a sheet");
@@ -2475,25 +3406,25 @@ fn print_help() {
     output::info("  name list                    List all defined names");
     output::info("");
     output::info("  TABLES");
-    output::info("  table list                                   List all tables in active sheet");
-    output::info("  table create <range> [--headers]             Create a table on range");
-    output::info("  table select <range>                         Select table range");
-    output::info("  table delete <tableId> [--keep-format]       Delete a table");
-    output::info("  table rename <tableId> <name>                Rename a table");
-    output::info("  table options <tableId> <type> <true|false>  Toggle table option");
+    output::info("  table list                                     List all tables in active sheet");
+    output::info("  table create <range> [--headers]               Create a table on range");
+    output::info("  table select <range>                           Select table range");
+    output::info("  table delete <id|name> [--keep-format]         Delete a table");
+    output::info("  table rename <id|name> <newName>               Rename a table");
+    output::info("  table options <id|name> <type> <true|false>    Toggle table option");
     output::info("         types: 0=Header Row    1=Total Row      2=Banded Rows");
     output::info("                3=Banded Columns 4=First Column   5=Last Column");
     output::info("                6=Filter Button");
-    output::info("  table source <tableId> <range>               Change table source range");
-    output::info("  table style <tableId> <pattern>              Change table style (0-9)");
+    output::info("  table source <id|name> <range>                 Change table source range");
+    output::info("  table style <id|name> <pattern>                Change table style (0-9)");
     output::info("         patterns: 0=Light1  1=Light2  2=Light3  3=Light4  4=Light5");
     output::info("                   5=Medium1 6=Medium2 7=Medium3 8=Dark1   9=Dark2");
-    output::info("  table defaultstyle <pattern>                 Set default table style");
-    output::info("  table insertrow <tableId> <range> [--above]  Insert table row(s)");
-    output::info("  table insertcol <tableId> <range> [--after]  Insert table column(s)");
-    output::info("  table deleterow <tableId> <range>            Delete table row(s)");
-    output::info("  table deletecol <tableId> <range>            Delete table column(s)");
-    output::info("  table manage <tableId>                       Get table info");
+    output::info("  table defaultstyle <pattern>                   Set default table style");
+    output::info("  table insertrow <id|name> <range> [--above]    Insert table row(s)");
+    output::info("  table insertcol <id|name> <range> [--after]    Insert table column(s)");
+    output::info("  table deleterow <id|name> <range>              Delete table row(s)");
+    output::info("  table deletecol <id|name> <range>              Delete table column(s)");
+    output::info("  table manage <id|name>                         Get table info");
     output::info("");
     output::info("");
     output::info("  FORMATTING");
@@ -2507,6 +3438,103 @@ fn print_help() {
     output::info("  format fontsize <range> <size>                Set font size");
     output::info("  format fontcolor <range> <r> <g> <b>          Set font color (RGB 0-255)");
     output::info("  format fontcolor <range> --auto               Set automatic font color");
+    output::info("  format halign <range> <type>                  Horizontal alignment");
+    output::info("         types: general|left|center|right|fill|justify|centeracross|distributed");
+    output::info("  format valign <range> <type>                  Vertical alignment");
+    output::info("         types: top|center|bottom|justify|distributed");
+    output::info("  format textwrap <range> <overflow|clip|wrap|shrink>  Set text wrapping");
+    output::info("  format rotate <range> <angle>                 Set text rotation (-90 to 90)");
+    output::info("  format indent <range> <increase|decrease>     Adjust indent level");
+    output::info("  format fillcolor <range> <r> <g> <b>          Set fill color (RGB 0-255)");
+    output::info("  format fillcolor <range> --none               Remove fill color");
+    output::info("  format border <range> <type> <style> [r g b]  Set border");
+    output::info("         types: all|outer|inner|left|right|top|bottom|horizontal|vertical|diagonal");
+    output::info("         styles: none|thin|medium|dashed|dotted|thick|double|hair|");
+    output::info("                 mediumdashed|dashdot|mediumdashdot|dashdotdot|");
+    output::info("                 mediumdashdotdot|slantdashdot");
+    output::info("");
+    output::info("  NUMBER FORMATTING");
+    output::info("  format numformat <range> <type> [shortcut | --flags...]");
+    output::info("         Applies a number format. Use either a positional shortcut OR --flags (not both).");
+    output::info("");
+    output::info("         Types & positional shortcuts:");
+    output::info("           general       No format args required.");
+    output::info("           number        1: #,##0    2: #,##0.00    3: #0    4: #0.00");
+    output::info("                         Supports: --decimals, --noseparator, --leading-zeros, --negative");
+    output::info("           currency      Locale key, e.g.: en-US  en-IN  en-GB  en-JP");
+    output::info("                         Equivalent: format numformat A1 currency --currency en-US");
+    output::info("                         Supports: --currency, --decimals, --negative");
+    output::info("           accounting    Defaults to: _(* #,##0.00_);_(* (#,##0.00);_(* \"-\"??_);_(@_)");
+    output::info("                         Supports: --currency, --decimals, --negative");
+    output::info("           date          1: dddd, d mmmm, yyyy   2: d mmmm yyyy");
+    output::info("                         3: dd-mmm-yyyy          4: dd/mm/yy");
+    output::info("                         Pattern codes: d=day, m=month, y=year");
+    output::info("           time          1: h:mm:ss              2: h:mm:ss AM/PM");
+    output::info("                         Pattern codes: h=hour, m=minute, s=second, AM/PM=12-hour");
+    output::info("           duration      1: [hh]:mm:ss  2: [hh]:mm  3: [hh]  4: [mm]  5: [ss]");
+    output::info("           percentage    1: 0%          2: 0.00%");
+    output::info("                         Supports: --decimals");
+    output::info("           scientific    1: 0.00E+00    2: 0.0E+00");
+    output::info("                         Supports: --decimals");
+    output::info("           fraction      1: # ?/?       2: # ??/??");
+    output::info("                         Supports: --digits");
+    output::info("           text          No format args required. Uses @ pattern.");
+    output::info("           custom        <raw_pattern>          e.g.: [Red]#,##0.00");
+    output::info("                         Custom patterns are applied directly as format strings.");
+    output::info("                         To reuse patterns, copy the format string from 'format numformat --list-custom'.");
+    output::info("");
+    output::info("         Parameterized flags (alternative to positional shortcuts):");
+    output::info("           --decimals N       Decimal places (default 2)");
+    output::info("           --noseparator      Disable thousand separator (enabled by default)");
+    output::info("           --leading-zeros N  Digits before decimal point, zero-padded (default 1)");
+    output::info("           --negative STYLE   Negative number style:");
+    output::info("                              minus      (default, e.g. -1,234.00)");
+    output::info("                              red        (red font)");
+    output::info("                              red-minus  (red font with minus sign)");
+    output::info("                              parens     (parentheses, e.g. (1,234.00))");
+    output::info("                              red-parens (red font with parentheses)");
+    output::info("           --currency KEY     Currency locale for currency/accounting, e.g.: en-US, en-IN");
+    output::info("           --prefix TEXT      Prefix text (used with: number, custom)");
+    output::info("           --suffix TEXT      Suffix text (used with: number, custom)");
+    output::info("           --digits N         Fraction digit places (default 1)");
+    output::info("           --date PATTERN     Date pattern (used with: date, custom)");
+    output::info("                              Codes: d, dd, ddd, dddd, m, mm, mmm, mmmm, yy, yyyy");
+    output::info("           --time PATTERN     Time pattern (used with: time, custom)");
+    output::info("                              Codes: h, hh, m, mm, s, ss, AM/PM");
+    output::info("");
+    output::info("         Combining --date and --time (requires type 'custom'):");
+    output::info("           format numformat A1 custom --date \"dd/mm/yyyy\" --time \"hh:mm:ss\"");
+    output::info("");
+    output::info("         Examples:");
+    output::info("           format numformat A1:A10 number --decimals 2 --negative red");
+    output::info("           format numformat A1 number --prefix \"€\" --decimals 2");
+    output::info("           format numformat A1 number --suffix \" pts\" --decimals 0");
+    output::info("           format numformat B1:B5 currency en-US");
+    output::info("           format numformat B1:B5 currency --currency en-IN");
+    output::info("           format numformat C1 accounting --currency en-US --decimals 2");
+    output::info("           format numformat D1:D10 percentage --decimals 1");
+    output::info("           format numformat E1 scientific --decimals 3");
+    output::info("           format numformat F1 fraction --digits 2");
+    output::info("           format numformat G1 custom \"[Red]#,##0.00;-#,##0.00\"");
+    output::info("");
+    output::info("  format numformat --list-custom               List saved custom number formats");
+    output::info("  format numformat --list-currency              List supported currency country codes");
+    output::info("  format decimal <range> <increase|decrease>   Adjust decimal places");
+    output::info("  format numpreview <cellRef|range> <type> <format_text>");
+    output::info("         Preview a number format on a cell. Accepts a range (uses first cell).");
+    output::info("         <format_text> is the raw pattern string or a shortcut index.");
+    output::info("  format numinfo <cellRef>                     Get number format info for cell");
+    output::info("  format nummanage                             List all built-in format types and their shortcuts");
+    output::info("  format customformat                          (Deprecated) Alias for 'format numformat --list-custom'");
+    output::info("  format default <range> [--flags...]");
+    output::info("         Sets the default cell format for the specified range.");
+    output::info("         Does not affect existing cell-level overrides.");
+    output::info("         Flags: --font-name, --font-size, --bold, --italic, --underline,");
+    output::info("                --font-color, --fill-color, --halign, --valign, --wrap");
+    output::info("         Examples:");
+    output::info("           format default A1:Z100 --font-name Arial --font-size 11 --bold false");
+    output::info("           format default A1:Z100 --fill-color 255 255 255 --halign center");
+    output::info("         Run 'format default --help' for full flag details.");
     output::info("");
     output::info("  help                         Show this help");
     output::info("  exit / quit                  Exit the CLI");

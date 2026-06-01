@@ -122,7 +122,7 @@ impl TransferNativeString {
 // ─── Mangled symbol names (GCC / libstdc++ Itanium ABI) ─────────────────────
 
 pub(crate) mod sym {
-    /// `ZSEngine::RequestManager::SetAppDataPath(std::string)`  (GCC __cxx11)
+    /// `ZSEngine::RequestManager::SetAppDataPath(std::string)`   (GCC __cxx11)
     pub const SET_APP_DATA_PATH: &[u8] =
         b"_ZN8ZSEngine14RequestManager14SetAppDataPathENSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE\0";
 

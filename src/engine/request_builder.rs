@@ -96,6 +96,26 @@ pub const ACTION_STRIKE_THROUGH: i32 = 77;
 pub const ACTION_SET_SUPERSCRIPT: i32 = 78;
 pub const ACTION_SET_SUBSCRIPT: i32 = 79;
 
+// Cell formatting – alignment
+pub const ACTION_VERTICAL_ALIGNMENT: i32 = 5;
+pub const ACTION_HORIZONTAL_ALIGNMENT: i32 = 6;
+pub const ACTION_FILL_COLOR: i32 = 7;
+pub const ACTION_WRAP_TEXT: i32 = 9;
+pub const ACTION_TEXT_ROTATION: i32 = 14;
+pub const ACTION_SET_BORDER: i32 = 36;
+pub const ACTION_DEFAULT_FORMAT: i32 = 275;
+pub const ACTION_INCREASE_INDENT: i32 = 10052;
+pub const ACTION_DECREASE_INDENT: i32 = 10053;
+
+// Cell formatting – number formatting
+pub const ACTION_INCREASE_DECIMAL: i32 = 172;
+pub const ACTION_DECREASE_DECIMAL: i32 = 173;
+pub const ACTION_MANAGE_NUMBER_FORMAT: i32 = 3090;
+pub const ACTION_MANAGE_CUSTOM_FORMAT: i32 = 4000;
+pub const ACTION_GET_NUMBER_FORMAT_INFO: i32 = 5526;
+pub const ACTION_PREVIEW_NUMBER_FORMAT: i32 = 10058;
+pub const ACTION_APPLY_NUMBER_FORMAT: i32 = 10059;
+
 // ─── Shared JSON builders ────────────────────────────────────────────────────
 
 fn build_active_cell(row: i32, col: i32) -> Value {
@@ -145,12 +165,15 @@ pub fn build_import_workbook(file_path: &str) -> String {
     .to_string()
 }
 
-pub fn build_open_workbook(file_path: &str) -> String {
-    json!({
+pub fn build_open_workbook(file_path: &str, file_type: Option<i32>) -> String {
+    let mut v = json!({
         "action_id": ACTION_OPEN_WORKBOOK,
         "file_path": file_path
-    })
-    .to_string()
+    });
+    if let Some(ft) = file_type {
+        v["file_type"] = json!(ft);
+    }
+    v.to_string()
 }
 
 pub fn build_create_workbook(doc_name: &str) -> String {
@@ -603,6 +626,8 @@ pub fn build_merge_cells(
     json!({
         "action_id": ACTION_MERGECELLS,
         "rid": rid,
+        "sheet_id": sheet_id,
+        "active_sheet_id": sheet_id,
         "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
         "active_info": build_active_info(sheet_id, start_row, start_col),
         "is_forced": true
@@ -1351,6 +1376,325 @@ pub fn build_set_font_color_auto(
         "is_automatic": true,
         "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
         "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+// ─── Cell formatting – alignment ─────────────────────────────────────────────
+
+pub fn build_horizontal_alignment(
+    rid: &str,
+    sheet_id: &str,
+    alignment_type: i32,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_HORIZONTAL_ALIGNMENT,
+        "rid": rid,
+        "horizontal_alignment_type": alignment_type,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_vertical_alignment(
+    rid: &str,
+    sheet_id: &str,
+    alignment_type: i32,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_VERTICAL_ALIGNMENT,
+        "rid": rid,
+        "vertical_alignment_type": alignment_type,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_wrap_text(
+    rid: &str,
+    sheet_id: &str,
+    wrap_type: i32,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_WRAP_TEXT,
+        "rid": rid,
+        "wrap_type": wrap_type,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_text_rotation(
+    rid: &str,
+    sheet_id: &str,
+    angle: i32,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_TEXT_ROTATION,
+        "rid": rid,
+        "text_rotation_angle": angle,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_increase_indent(
+    rid: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_INCREASE_INDENT,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "active_row_index": start_row,
+        "active_column_index": start_col,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_decrease_indent(
+    rid: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_DECREASE_INDENT,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "active_row_index": start_row,
+        "active_column_index": start_col,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+// ─── Cell formatting – fill color ────────────────────────────────────────────
+
+pub fn build_fill_color_rgb(
+    rid: &str,
+    sheet_id: &str,
+    red: i32,
+    green: i32,
+    blue: i32,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_FILL_COLOR,
+        "rid": rid,
+        "no_fill": false,
+        "fill_color": {
+            "red": red,
+            "green": green,
+            "blue": blue
+        },
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_fill_color_none(
+    rid: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_FILL_COLOR,
+        "rid": rid,
+        "no_fill": true,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+// ─── Cell formatting – border ────────────────────────────────────────────────
+
+pub fn build_set_border(
+    rid: &str,
+    sheet_id: &str,
+    border_type: i32,
+    border_line_style: i32,
+    red: i32,
+    green: i32,
+    blue: i32,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_SET_BORDER,
+        "rid": rid,
+        "border_type": border_type,
+        "border_line_style": border_line_style,
+        "border_color": {
+            "red": red,
+            "green": green,
+            "blue": blue
+        },
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+// ─── Cell formatting – default format ────────────────────────────────────────
+
+pub fn build_default_format(rid: &str, format_json: Value) -> String {
+    let mut v = format_json;
+    v["action_id"] = json!(ACTION_DEFAULT_FORMAT);
+    v["rid"] = json!(rid);
+    v.to_string()
+}
+
+// ─── Number formatting ───────────────────────────────────────────────────────
+
+pub fn build_apply_number_format(
+    rid: &str,
+    sheet_id: &str,
+    number_format_text: &str,
+    number_format_type: i32,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_APPLY_NUMBER_FORMAT,
+        "rid": rid,
+        "number_format_text": number_format_text,
+        "number_format_type": number_format_type,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_increase_decimal(
+    rid: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_INCREASE_DECIMAL,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "active_row_index": start_row,
+        "active_column_index": start_col,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_decrease_decimal(
+    rid: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_DECREASE_DECIMAL,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "active_row_index": start_row,
+        "active_column_index": start_col,
+        "sheet_range_list": build_sheet_range_list(sheet_id, start_row, start_col, end_row, end_col),
+        "active_info": build_active_info(sheet_id, start_row, start_col)
+    })
+    .to_string()
+}
+
+pub fn build_preview_number_format(
+    rid: &str,
+    sheet_id: &str,
+    number_format_text: &str,
+    number_format_type: i32,
+    active_row: i32,
+    active_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_PREVIEW_NUMBER_FORMAT,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "number_format_text": number_format_text,
+        "number_format_type": number_format_type,
+        "active_row_index": active_row,
+        "active_column_index": active_col
+    })
+    .to_string()
+}
+
+pub fn build_get_number_format_info(
+    rid: &str,
+    sheet_id: &str,
+    active_row: i32,
+    active_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_GET_NUMBER_FORMAT_INFO,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "active_row_index": active_row,
+        "active_column_index": active_col
+    })
+    .to_string()
+}
+
+pub fn build_manage_custom_format(rid: &str) -> String {
+    json!({
+        "action_id": ACTION_MANAGE_CUSTOM_FORMAT,
+        "rid": rid
+    })
+    .to_string()
+}
+
+pub fn build_manage_number_format(rid: &str) -> String {
+    json!({
+        "action_id": ACTION_MANAGE_NUMBER_FORMAT,
+        "rid": rid
     })
     .to_string()
 }
