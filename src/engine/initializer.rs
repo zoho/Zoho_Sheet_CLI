@@ -196,7 +196,7 @@ fn load_icu_data(engine: &EngineHandle) -> bool {
                 match unsafe { memmap2::Mmap::map(&file) } {
                     Ok(mmap) => {
                         let ptr = mmap.as_ptr();
-                        let len = mmap.len();
+                        let _len = mmap.len();
                         // Store the mapping so it won't be dropped.
                         let _ = ICU_MMAP.set(mmap);
 

@@ -141,7 +141,7 @@ impl EngineHandle {
                 if !full_path.exists() { continue; }
                 match unsafe { Library::new(full_path.as_os_str()) } {
                     Ok(lib) => return Self::resolve(lib),
-                    Err(e) => last_err = format!("{}: {}", full_path.display(), e),
+                    Err(e) => { last_err = format!("{}: {}", full_path.display(), e); }
                 }
             }
             // Also try bare name (system search path / LD_LIBRARY_PATH)

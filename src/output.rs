@@ -108,7 +108,7 @@ const BOX_BR: char = '\u{255D}'; // ╝
 const THIN_H: char = '\u{2500}'; // ─
 const THIN_LT: char = '\u{255F}'; // ╟
 const THIN_RT: char = '\u{2562}'; // ╢
-const BOX_W: usize = 80; // inner width between ║…║
+const BOX_W: usize = 130; // inner width between ║…║
 
 /// Prints the startup banner with the ASCII logo.
 pub fn print_banner() {
@@ -249,40 +249,124 @@ fn print_section_header(out: &mut io::Stdout, title: &str) {
 }
 
 fn print_cmd_row(out: &mut io::Stdout, command: &str, description: &str) {
-    const CMD_WIDTH: usize = 36;
+    const MIN_CMD_WIDTH: usize = 58;
     const INDENT: usize = 4;
+    const GAP: usize = 1; // space between command and description
 
-    let cmd_part = if command.len() > CMD_WIDTH {
-        &command[..CMD_WIDTH]
+    let cmd_width = command.len().max(MIN_CMD_WIDTH);
+    let used = INDENT + cmd_width + GAP;
+
+    if used >= BOX_W {
+        // Command is too long for one line — print command, then description on next line
+        let cmd_pad = BOX_W.saturating_sub(INDENT + command.len());
+
+        let _ = queue!(out, SetForegroundColor(Color::DarkCyan));
+        print!("{BOX_V}");
+        let _ = queue!(out, ResetColor);
+        print!("{}", " ".repeat(INDENT));
+        let _ = queue!(out, SetForegroundColor(Color::Yellow));
+        print!("{command}{}", " ".repeat(cmd_pad));
+        let _ = queue!(out, ResetColor);
+        let _ = queue!(out, SetForegroundColor(Color::DarkCyan));
+        print!("{BOX_V}");
+        let _ = queue!(out, ResetColor);
+        println!();
+
+        // Print description indented on next line
+        let desc_indent = INDENT + 4;
+        let desc_space = BOX_W.saturating_sub(desc_indent);
+        let desc_part = if description.len() > desc_space {
+            &description[..desc_space]
+        } else {
+            description
+        };
+        let desc_pad = desc_space.saturating_sub(desc_part.len());
+
+        let _ = queue!(out, SetForegroundColor(Color::DarkCyan));
+        print!("{BOX_V}");
+        let _ = queue!(out, ResetColor);
+        print!("{}", " ".repeat(desc_indent));
+        let _ = queue!(out, SetForegroundColor(Color::DarkGrey));
+        print!("{desc_part}{}", " ".repeat(desc_pad));
+        let _ = queue!(out, ResetColor);
+        let _ = queue!(out, SetForegroundColor(Color::DarkCyan));
+        print!("{BOX_V}");
+        let _ = queue!(out, ResetColor);
+        println!();
     } else {
-        command
-    };
-    let cmd_pad = CMD_WIDTH.saturating_sub(cmd_part.len());
+        // Normal case — command and description on same line
+        let cmd_pad = cmd_width.saturating_sub(command.len()) + GAP;
+        let desc_space = BOX_W.saturating_sub(used);
+        let desc_part = if description.len() > desc_space {
+            &description[..desc_space]
+        } else {
+            description
+        };
+        let desc_pad = desc_space.saturating_sub(desc_part.len());
 
-    let desc_space = BOX_W.saturating_sub(INDENT + CMD_WIDTH);
-    let desc_part = if description.len() > desc_space {
-        &description[..desc_space]
-    } else {
-        description
-    };
-    let desc_pad = desc_space.saturating_sub(desc_part.len());
+        let _ = queue!(out, SetForegroundColor(Color::DarkCyan));
+        print!("{BOX_V}");
+        let _ = queue!(out, ResetColor);
+        print!("{}", " ".repeat(INDENT));
+        let _ = queue!(out, SetForegroundColor(Color::Yellow));
+        print!("{command}{}", " ".repeat(cmd_pad));
+        let _ = queue!(out, ResetColor);
+        let _ = queue!(out, SetForegroundColor(Color::DarkGrey));
+        print!("{desc_part}{}", " ".repeat(desc_pad));
+        let _ = queue!(out, ResetColor);
+        let _ = queue!(out, SetForegroundColor(Color::DarkCyan));
+        print!("{BOX_V}");
+        let _ = queue!(out, ResetColor);
+        println!();
+    }
+}
 
-    let _ = queue!(out, SetForegroundColor(Color::DarkCyan));
-    print!("{BOX_V}");
+// ─── Public Help Formatting API ──────────────────────────────────────────────
+
+/// Prints a help title header.
+pub fn help_header(title: &str) {
+    let mut out = io::stdout();
+    println!();
+    let _ = queue!(out, SetForegroundColor(Color::Green));
+    println!("  {title}");
     let _ = queue!(out, ResetColor);
+    println!();
+}
 
-    print!("{}", " ".repeat(INDENT));
+/// Prints a section title within the help output.
+pub fn help_section(title: &str) {
+    let mut out = io::stdout();
+    let _ = queue!(out, SetForegroundColor(Color::White));
+    println!("  {title}");
+    let _ = queue!(out, ResetColor);
+    println!();
+}
 
+/// Prints a command + description row.
+pub fn help_cmd(command: &str, description: &str) {
+    let mut out = io::stdout();
+    let cmd_col: usize = 44;
+    let pad = cmd_col.saturating_sub(command.len()).max(2);
+    print!("    ");
     let _ = queue!(out, SetForegroundColor(Color::Yellow));
-    print!("{cmd_part}{}", " ".repeat(cmd_pad));
+    print!("{command}");
     let _ = queue!(out, ResetColor);
-
+    print!("{}", " ".repeat(pad));
     let _ = queue!(out, SetForegroundColor(Color::DarkGrey));
-    print!("{desc_part}{}", " ".repeat(desc_pad));
+    println!("{description}");
     let _ = queue!(out, ResetColor);
+}
 
-    let _ = queue!(out, SetForegroundColor(Color::DarkCyan));
-    print!("{BOX_V}");
+/// Prints a detail/continuation line (indented, dimmed).
+pub fn help_detail(text: &str) {
+    let mut out = io::stdout();
+    print!("      ");
+    let _ = queue!(out, SetForegroundColor(Color::DarkGrey));
+    println!("{text}");
     let _ = queue!(out, ResetColor);
+}
+
+/// Closes the help output.
+pub fn help_footer() {
     println!();
 }

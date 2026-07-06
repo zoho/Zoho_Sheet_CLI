@@ -19,6 +19,9 @@ pub struct CliSession {
     pub sheet_ids: Vec<String>,
     /// Whether the workbook has unsaved changes.
     pub is_dirty: bool,
+    /// Cache of chart renames: maps user-assigned name → chart_id.
+    /// Cleared on sheet switch or workbook close.
+    pub chart_name_cache: std::collections::HashMap<String, String>,
 }
 
 impl CliSession {
@@ -60,5 +63,6 @@ impl CliSession {
         self.is_dirty = false;
         self.sheet_names.clear();
         self.sheet_ids.clear();
+        self.chart_name_cache.clear();
     }
 }

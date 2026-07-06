@@ -85,6 +85,46 @@ pub const ACTION_DELETE_TABLE_COLUMN: i32 = 10147;
 pub const ACTION_CHANGE_TABLE_SOURCE: i32 = 10148;
 pub const ACTION_CHANGE_TABLE_OPTIONS: i32 = 10150;
 
+// Pivot Table
+pub const ACTION_CREATE_PIVOT_TABLE: i32 = 913;
+pub const ACTION_DELETE_PIVOT_TABLE: i32 = 914;
+pub const ACTION_APPLY_PIVOT_GROUPING: i32 = 915;
+pub const ACTION_MODIFY_PIVOT_PROPERTIES: i32 = 916;
+pub const ACTION_CHANGE_PIVOT_FIELD_TYPE: i32 = 917;
+pub const ACTION_REMOVE_PIVOT_FIELD: i32 = 918;
+pub const ACTION_REMOVE_PIVOT_FILTER: i32 = 919;
+pub const ACTION_REMOVE_PIVOT_SORT: i32 = 920;
+pub const ACTION_SELECT_PIVOT_FIELD: i32 = 921;
+pub const ACTION_REMOVE_GROUP: i32 = 922;
+pub const ACTION_MODIFY_VALUE_AGGREGATION_TYPE: i32 = 923;
+pub const ACTION_MODIFY_VALUE_SHOW_DATA_AS: i32 = 924;
+pub const ACTION_PIVOT_TABLE_INFO: i32 = 925;
+pub const ACTION_PIVOT_CELL_INFO: i32 = 926;
+pub const ACTION_PIVOT_FILTER_INFO: i32 = 927;
+pub const ACTION_APPLY_PIVOT_DATE_GROUPING: i32 = 928;
+pub const ACTION_MOVE_PIVOT_TABLE: i32 = 929;
+pub const ACTION_REFRESH_PIVOT_TABLE: i32 = 930;
+pub const ACTION_CHANGE_PIVOT_TABLE_SOURCE: i32 = 931;
+pub const ACTION_APPLY_PIVOT_FILTER: i32 = 911;
+pub const ACTION_APPLY_PIVOT_SORT: i32 = 912;
+pub const ACTION_COPY_PIVOT_TABLE: i32 = 933;
+pub const ACTION_EDIT_PIVOT_NAME: i32 = 934;
+pub const ACTION_REFRESH_PIVOT_TABLE_ON_LOAD: i32 = 935;
+
+// Chart
+pub const ACTION_CLONE_CHART: i32 = 71;
+pub const ACTION_DELETE_CHART: i32 = 73;
+pub const ACTION_UPDATE_CHART_POSITION: i32 = 74;
+pub const ACTION_INSERT_CHART: i32 = 75;
+pub const ACTION_MANAGE_CHART_WITH_RANGE: i32 = 76;
+pub const ACTION_MANAGE_CHART_WITH_ID: i32 = 80;
+pub const ACTION_CUSTOMIZE_CHART_PROPERTY_TWO: i32 = 652;
+pub const ACTION_RECOMMEND_CHART: i32 = 695;
+pub const ACTION_MANAGE_TOP_BOTTOM: i32 = 697;
+pub const ACTION_UPDATE_CHART_TYPE: i32 = 1122;
+pub const ACTION_CUSTOMIZE_CHART_PROPERTY_ONE: i32 = 6001;
+pub const ACTION_MOVE_CHART: i32 = 6002;
+
 // Font formatting
 pub const ACTION_SET_ITALIC: i32 = 1;
 pub const ACTION_SET_UNDERLINE: i32 = 2;
@@ -1106,7 +1146,7 @@ pub fn build_insert_table_column(
     start_col: i32,
     end_row: i32,
     end_col: i32,
-    is_before: bool,
+    is_after: bool,
 ) -> String {
     json!({
         "action_id": ACTION_INSERT_TABLE_COLUMN,
@@ -1116,7 +1156,7 @@ pub fn build_insert_table_column(
             "sheet_id": sheet_id,
             "range_list": [build_range_object(start_row, start_col, end_row, end_col)]
         }],
-        "is_insert_before": is_before
+        "is_insert_after": is_after
     })
     .to_string()
 }
@@ -1695,6 +1735,851 @@ pub fn build_manage_number_format(rid: &str) -> String {
     json!({
         "action_id": ACTION_MANAGE_NUMBER_FORMAT,
         "rid": rid
+    })
+    .to_string()
+}
+
+// ─── Pivot Table operations ──────────────────────────────────────────────────
+
+pub fn build_create_pivot_table_new_sheet(
+    rid: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_CREATE_PIVOT_TABLE,
+        "rid": rid,
+        "source_range": [{
+            "sheet_id": sheet_id,
+            "range_list": [build_range_object(start_row, start_col, end_row, end_col)]
+        }],
+        "is_new_sheet": true
+    })
+    .to_string()
+}
+
+pub fn build_create_pivot_table_at_dest(
+    rid: &str,
+    source_sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+    dest_sheet_id: &str,
+    dest_row: i32,
+    dest_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_CREATE_PIVOT_TABLE,
+        "rid": rid,
+        "source_range": [{
+            "sheet_id": source_sheet_id,
+            "range_list": [build_range_object(start_row, start_col, end_row, end_col)]
+        }],
+        "is_new_sheet": false,
+        "destination_range": [{
+            "sheet_id": dest_sheet_id,
+            "range_list": [build_range_object(dest_row, dest_col, dest_row, dest_col)]
+        }]
+    })
+    .to_string()
+}
+
+pub fn build_delete_pivot_table(rid: &str, sheet_id: &str, pivot_id: &str) -> String {
+    json!({
+        "action_id": ACTION_DELETE_PIVOT_TABLE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id
+    })
+    .to_string()
+}
+
+pub fn build_change_pivot_field_type(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    field_index: i32,
+    pivot_field_type: i32,
+    destination_field_index: i32,
+    destination_field_type: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_CHANGE_PIVOT_FIELD_TYPE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "field_index": field_index,
+        "pivot_field_type": pivot_field_type,
+        "destination_field_index": destination_field_index,
+        "destination_field_type": destination_field_type
+    })
+    .to_string()
+}
+
+pub fn build_select_pivot_field(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    header_index: i32,
+    pivot_field_type: i32,
+    field_index: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_SELECT_PIVOT_FIELD,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "header_index": header_index,
+        "pivot_field_type": pivot_field_type,
+        "field_index": field_index
+    })
+    .to_string()
+}
+
+pub fn build_pivot_table_info(rid: &str, sheet_id: &str, pivot_id: &str) -> String {
+    json!({
+        "action_id": ACTION_PIVOT_TABLE_INFO,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id
+    })
+    .to_string()
+}
+
+pub fn build_move_pivot_table(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    destination_sheet_id: &str,
+    dest_row: i32,
+    dest_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_MOVE_PIVOT_TABLE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "destination_sheet_id": destination_sheet_id,
+        "start_cell_index": build_active_cell(dest_row, dest_col)
+    })
+    .to_string()
+}
+
+pub fn build_refresh_pivot_table(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+) -> String {
+    json!({
+        "action_id": ACTION_REFRESH_PIVOT_TABLE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "active_info": {
+            "active_sheet_id": sheet_id,
+            "active_cell": build_active_cell(0, 0)
+        }
+    })
+    .to_string()
+}
+
+pub fn build_copy_pivot_table(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    destination_sheet_id: &str,
+    dest_row: i32,
+    dest_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_COPY_PIVOT_TABLE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "destination_sheet_id": destination_sheet_id,
+        "start_cell_index": build_active_cell(dest_row, dest_col)
+    })
+    .to_string()
+}
+
+pub fn build_edit_pivot_name(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    new_pivot_name: &str,
+) -> String {
+    json!({
+        "action_id": ACTION_EDIT_PIVOT_NAME,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "new_pivot_name": new_pivot_name
+    })
+    .to_string()
+}
+
+/// Builds a fetch request for pivot table list using sheet_meta pivot_info (524288).
+/// Response contains pivot_id, is_pivot_table_empty, pivot_range for each pivot on the sheet.
+pub fn build_pivot_list_fetch(rid: &str, sheet_id: &str) -> String {
+    // sheet_meta = pivot_info (bit 19 = 524288)
+    json!({
+        "rid": rid,
+        "doc_meta": 2,
+        "meta": [{"sheet_meta": 524288, "cell_meta": 0}],
+        "ranges": [{"boundary": [0, 0, 262143, 4095], "sheet_id": sheet_id}]
+    })
+    .to_string()
+}
+
+// ─── Pivot Filter / Sort / Grouping ─────────────────────────────────────────
+
+pub fn build_apply_pivot_filter_condition(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    field_index: i32,
+    pivot_field_type: i32,
+    criteria_id: i32,
+    sub_criteria_id: i32,
+    val1: &str,
+    val2: &str,
+    value_field_index: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_APPLY_PIVOT_FILTER,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "field_index": field_index,
+        "pivot_field_type": pivot_field_type,
+        "is_selection_filter": false,
+        "condition": {
+            "criteria_id": criteria_id,
+            "sub_criteria_id": sub_criteria_id,
+            "val1": val1,
+            "val2": val2,
+            "value_field_index": value_field_index
+        }
+    })
+    .to_string()
+}
+
+pub fn build_apply_pivot_filter_selection(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    field_index: i32,
+    pivot_field_type: i32,
+    check_mark_vector: Vec<i32>,
+) -> String {
+    json!({
+        "action_id": ACTION_APPLY_PIVOT_FILTER,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "field_index": field_index,
+        "pivot_field_type": pivot_field_type,
+        "is_selection_filter": true,
+        "check_mark_vector": check_mark_vector
+    })
+    .to_string()
+}
+
+pub fn build_remove_pivot_filter(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    field_index: i32,
+    pivot_field_type: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_REMOVE_PIVOT_FILTER,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "field_index": field_index,
+        "pivot_field_type": pivot_field_type
+    })
+    .to_string()
+}
+
+pub fn build_pivot_filter_info(
+    rid: &str,
+    sheet_id: &str,
+    active_row: i32,
+    active_column: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_PIVOT_FILTER_INFO,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "active_cell": {
+            "active_row": active_row,
+            "active_column": active_column
+        }
+    })
+    .to_string()
+}
+
+pub fn build_apply_pivot_sort(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    field_index: i32,
+    pivot_field_type: i32,
+    is_asc_order: bool,
+    sort_aggregation_index: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_APPLY_PIVOT_SORT,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "field_index": field_index,
+        "pivot_field_type": pivot_field_type,
+        "is_asc_order": is_asc_order,
+        "sort_aggregation_index": sort_aggregation_index
+    })
+    .to_string()
+}
+
+pub fn build_remove_pivot_sort(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    field_index: i32,
+    pivot_field_type: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_REMOVE_PIVOT_SORT,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "field_index": field_index,
+        "pivot_field_type": pivot_field_type
+    })
+    .to_string()
+}
+
+pub fn build_apply_pivot_grouping(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    field_index: i32,
+    pivot_field_type: i32,
+    minimum: f64,
+    maximum: f64,
+    range: f64,
+    is_min_default: bool,
+    is_max_default: bool,
+) -> String {
+    json!({
+        "action_id": ACTION_APPLY_PIVOT_GROUPING,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "field_index": field_index,
+        "pivot_field_type": pivot_field_type,
+        "minimum": minimum,
+        "maximum": maximum,
+        "range": range,
+        "is_min_default": is_min_default,
+        "is_max_default": is_max_default
+    })
+    .to_string()
+}
+
+pub fn build_apply_pivot_date_grouping(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    field_index: i32,
+    pivot_field_type: i32,
+    date_grouping_types: Vec<i32>,
+    minimum: f64,
+    maximum: f64,
+    is_min_default: bool,
+    is_max_default: bool,
+    no_of_days: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_APPLY_PIVOT_DATE_GROUPING,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "field_index": field_index,
+        "pivot_field_type": pivot_field_type,
+        "date_grouping_types": date_grouping_types,
+        "minimum": minimum,
+        "maximum": maximum,
+        "is_min_default": is_min_default,
+        "is_max_default": is_max_default,
+        "no_of_days": no_of_days
+    })
+    .to_string()
+}
+
+pub fn build_remove_group(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    field_index: i32,
+    pivot_field_type: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_REMOVE_GROUP,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "field_index": field_index,
+        "pivot_field_type": pivot_field_type
+    })
+    .to_string()
+}
+
+pub fn build_remove_pivot_field(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    field_index: i32,
+    pivot_field_type: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_REMOVE_PIVOT_FIELD,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "field_index": field_index,
+        "pivot_field_type": pivot_field_type
+    })
+    .to_string()
+}
+
+pub fn build_modify_pivot_properties(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    pivot_property: i32,
+    is_enabled: bool,
+) -> String {
+    json!({
+        "action_id": ACTION_MODIFY_PIVOT_PROPERTIES,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "pivot_property": pivot_property,
+        "is_enabled": is_enabled
+    })
+    .to_string()
+}
+
+pub fn build_modify_value_aggregation_type(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    field_index: i32,
+    summarise_by: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_MODIFY_VALUE_AGGREGATION_TYPE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "field_index": field_index,
+        "summarise_by": summarise_by
+    })
+    .to_string()
+}
+
+pub fn build_modify_value_show_data_as(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    field_index: i32,
+    show_data_as: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_MODIFY_VALUE_SHOW_DATA_AS,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "field_index": field_index,
+        "show_data_as": show_data_as
+    })
+    .to_string()
+}
+
+pub fn build_change_pivot_table_source(
+    rid: &str,
+    sheet_id: &str,
+    pivot_id: &str,
+    destination_sheet_id: &str,
+    start_row: i32,
+    end_row: i32,
+    start_column: i32,
+    end_column: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_CHANGE_PIVOT_TABLE_SOURCE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "pivot_id": pivot_id,
+        "destination_sheet_id": destination_sheet_id,
+        "range": {
+            "start_row": start_row,
+            "end_row": end_row,
+            "start_column": start_column,
+            "end_column": end_column
+        },
+        "active_info": {
+            "active_sheet_id": sheet_id,
+            "active_cell": build_active_cell(0, 0)
+        }
+    })
+    .to_string()
+}
+
+pub fn build_pivot_cell_info(
+    rid: &str,
+    sheet_id: &str,
+    active_row: i32,
+    active_column: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_PIVOT_CELL_INFO,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "active_cell": {
+            "active_row": active_row,
+            "active_column": active_column
+        }
+    })
+    .to_string()
+}
+
+pub fn build_refresh_pivot_table_on_load(rid: &str, sheet_id: &str) -> String {
+    json!({
+        "action_id": ACTION_REFRESH_PIVOT_TABLE_ON_LOAD,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "is_forced": false,
+        "active_info": {
+            "active_sheet_id": sheet_id,
+            "active_cell": build_active_cell(0, 0)
+        }
+    })
+    .to_string()
+}
+
+// ─── Chart ───────────────────────────────────────────────────────────────────
+
+pub fn build_recommend_chart(
+    rid: &str,
+    sheet_id: &str,
+    range_list: Vec<serde_json::Value>,
+) -> String {
+    json!({
+        "action_id": ACTION_RECOMMEND_CHART,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": range_list
+    })
+    .to_string()
+}
+
+pub fn build_insert_chart(
+    rid: &str,
+    sheet_id: &str,
+    chart_type: i32,
+    chart_sub_type: Option<i32>,
+    range_list: Vec<serde_json::Value>,
+    start_x: i32,
+    start_y: i32,
+    end_x: i32,
+    end_y: i32,
+    position_type: i32,
+    active_row: i32,
+    active_col: i32,
+) -> String {
+    let mut payload = serde_json::Map::new();
+    payload.insert("action_id".into(), json!(ACTION_INSERT_CHART));
+    payload.insert("rid".into(), json!(rid));
+    payload.insert("sheet_id".into(), json!(sheet_id));
+    payload.insert("chart_type".into(), json!(chart_type));
+    if let Some(sub_type) = chart_sub_type {
+        payload.insert("chart_sub_type".into(), json!(sub_type));
+    }
+    payload.insert("range_list".into(), json!(range_list));
+    payload.insert(
+        "offset_position".into(),
+        json!({
+            "start_x": start_x as f64,
+            "start_y": start_y as f64,
+            "end_x": end_x as f64,
+            "end_y": end_y as f64
+        }),
+    );
+    payload.insert(
+        "range_position".into(),
+        json!({
+            "start_row": active_row,
+            "start_column": active_col,
+            "end_row": active_row + 15,
+            "end_column": active_col + 5
+        }),
+    );
+    payload.insert("start_row".into(), json!(active_row));
+    payload.insert("start_column".into(), json!(active_col));
+    payload.insert("start_row_offset".into(), json!(start_x as f64));
+    payload.insert("start_column_offset".into(), json!(start_y as f64));
+    payload.insert("height".into(), json!((end_y - start_y).max(10) as f64));
+    payload.insert("width".into(), json!((end_x - start_x).max(10) as f64));
+    payload.insert("position_type".into(), json!(position_type));
+    payload.insert(
+        "active_info".into(),
+        json!(build_active_info(sheet_id, active_row, active_col)),
+    );
+
+    serde_json::Value::Object(payload)
+        .to_string()
+}
+
+pub fn build_delete_chart(
+    rid: &str,
+    sheet_id: &str,
+    chart_id: &str,
+    active_row: i32,
+    active_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_DELETE_CHART,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "chart_id": chart_id,
+        "active_info": build_active_info(sheet_id, active_row, active_col)
+    })
+    .to_string()
+}
+
+pub fn build_update_chart_position(
+    rid: &str,
+    sheet_id: &str,
+    chart_id: &str,
+    start_x: i32,
+    start_y: i32,
+    end_x: i32,
+    end_y: i32,
+    position_type: i32,
+) -> String {
+    let (offset_pos, range_pos, top_start_row, top_start_col) = if position_type == 1 {
+        // Range-based: coordinates are row/col values
+        let range = serde_json::json!({
+            "start_row": start_y,
+            "start_column": start_x,
+            "end_row": end_y,
+            "end_column": end_x
+        });
+        let offset = serde_json::json!({
+            "start_x": 0.0_f64,
+            "start_y": 0.0_f64,
+            "end_x": 0.0_f64,
+            "end_y": 0.0_f64
+        });
+        (offset, range, start_y, start_x)
+    } else {
+        // Pixel-based: coordinates are pixel offsets
+        let offset = serde_json::json!({
+            "start_x": start_x as f64,
+            "start_y": start_y as f64,
+            "end_x": end_x as f64,
+            "end_y": end_y as f64
+        });
+        let range = serde_json::json!({
+            "start_row": 0,
+            "start_column": 0,
+            "end_row": 15,
+            "end_column": 5
+        });
+        (offset, range, 0, 0)
+    };
+    json!({
+        "action_id": ACTION_UPDATE_CHART_POSITION,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "chart_id": chart_id,
+        "offset_position": offset_pos,
+        "range_position": range_pos,
+        "start_row": top_start_row,
+        "start_column": top_start_col,
+        "position_type": position_type,
+        "active_info": build_active_info(sheet_id, top_start_row, top_start_col)
+    })
+    .to_string()
+}
+
+pub fn build_update_chart_type(
+    rid: &str,
+    sheet_id: &str,
+    chart_id: &str,
+    chart_type: i32,
+    chart_sub_type: Option<i32>,
+    active_row: i32,
+    active_col: i32,
+) -> String {
+    let mut chart_properties = serde_json::Map::new();
+    chart_properties.insert("chart_type".into(), json!(chart_type));
+    if let Some(sub_type) = chart_sub_type {
+        chart_properties.insert("chart_sub_type".into(), json!(sub_type));
+    }
+
+    json!({
+        "action_id": ACTION_UPDATE_CHART_TYPE,
+        "sub_action_id": 211,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "chart_id": chart_id,
+        "chart_properties": chart_properties,
+        "active_info": build_active_info(sheet_id, active_row, active_col)
+    })
+    .to_string()
+}
+
+pub fn build_manage_chart_with_range(
+    rid: &str,
+    sheet_id: &str,
+    range_list: Vec<serde_json::Value>,
+) -> String {
+    json!({
+        "action_id": ACTION_MANAGE_CHART_WITH_RANGE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": range_list
+    })
+    .to_string()
+}
+
+pub fn build_manage_chart_with_id(
+    rid: &str,
+    sheet_id: &str,
+    chart_id_list: Vec<String>,
+) -> String {
+    json!({
+        "action_id": ACTION_MANAGE_CHART_WITH_ID,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "chart_id_list": chart_id_list
+    })
+    .to_string()
+}
+
+pub fn build_customize_chart_property_two(
+    rid: &str,
+    sheet_id: &str,
+    chart_id: &str,
+    chart_properties: serde_json::Value,
+) -> String {
+    json!({
+        "action_id": ACTION_CUSTOMIZE_CHART_PROPERTY_TWO,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "chart_id": chart_id,
+        "chart_properties": chart_properties,
+        "active_info": {
+            "active_sheet_id": sheet_id,
+            "active_chart_id": chart_id
+        }
+    })
+    .to_string()
+}
+
+pub fn build_move_chart(
+    rid: &str,
+    sheet_id: &str,
+    destination_sheet_id: &str,
+    chart_id: &str,
+    active_row: i32,
+    active_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_MOVE_CHART,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "destination_sheet_id": destination_sheet_id,
+        "chart_id": chart_id,
+        "active_info": build_active_info(sheet_id, active_row, active_col)
+    })
+    .to_string()
+}
+
+pub fn build_clone_chart(
+    rid: &str,
+    sheet_id: &str,
+    chart_id: &str,
+    active_row: i32,
+    active_col: i32,
+) -> String {
+    json!({
+        "action_id": ACTION_CLONE_CHART,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "chart_id": chart_id,
+        "active_info": build_active_info(sheet_id, active_row, active_col)
+    })
+    .to_string()
+}
+
+pub fn build_customize_chart_property_one(
+    rid: &str,
+    sheet_id: &str,
+    chart_id: &str,
+    sub_action_id: i32,
+    chart_properties: serde_json::Value,
+) -> String {
+    json!({
+        "action_id": ACTION_CUSTOMIZE_CHART_PROPERTY_ONE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "chart_id": chart_id,
+        "sub_action_id": sub_action_id,
+        "chart_properties": chart_properties
+    })
+    .to_string()
+}
+
+pub fn build_customize_chart_with_subaction(
+    rid: &str,
+    sheet_id: &str,
+    chart_id: &str,
+    action_id: i32,
+    sub_action_id: i32,
+    chart_properties: serde_json::Value,
+) -> String {
+    json!({
+        "action_id": action_id,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "chart_id": chart_id,
+        "sub_action_id": sub_action_id,
+        "chart_properties": chart_properties
+    })
+    .to_string()
+}
+
+pub fn build_manage_top_bottom(
+    rid: &str,
+    sheet_id: &str,
+    chart_id: &str,
+) -> String {
+    json!({
+        "action_id": ACTION_MANAGE_TOP_BOTTOM,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "chart_id": chart_id,
+        "active_info": build_active_info(sheet_id, 0, 0)
     })
     .to_string()
 }
