@@ -385,13 +385,16 @@ pub fn build_import_workbook(file_path: &str) -> String {
     .to_string()
 }
 
-pub fn build_open_workbook(file_path: &str, file_type: Option<i32>) -> String {
+pub fn build_open_workbook(file_path: &str, file_type: Option<i32>, password: Option<&str>) -> String {
     let mut v = json!({
         "action_id": ACTION_OPEN_WORKBOOK,
         "file_path": file_path
     });
     if let Some(ft) = file_type {
         v["file_type"] = json!(ft);
+    }
+    if let Some(pw) = password {
+        v["password"] = json!(pw);
     }
     v.to_string()
 }
@@ -946,11 +949,11 @@ pub fn build_range_cell_fetch(
     end_row: i32,
     end_col: i32,
 ) -> String {
-    // cell_meta = actualValue(1)|displayValue(2) = 3
+    // cell_meta = actualValue(1)|displayValue(2)|formulaValue(4) = 7
     json!({
         "rid": rid,
         "doc_meta": 2,
-        "meta": [{"sheet_meta": 1, "cell_meta": 3}],
+        "meta": [{"sheet_meta": 1, "cell_meta": 7}],
         "ranges": [{"boundary": [start_row, start_col, end_row, end_col], "sheet_id": sheet_id}]
     })
     .to_string()

@@ -94,6 +94,83 @@ pub fn blank_line() {
     println!();
 }
 
+/// Prompts the user for a password without echoing the input.
+/// Returns `None` if the user cancels (Esc, Ctrl+C, or empty input).
+pub fn prompt_password(prompt: &str) -> Option<String> {
+    use crossterm::event::{read, Event, KeyCode, KeyModifiers};
+    use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+
+    let mut out = io::stdout();
+    let _ = execute!(out, SetForegroundColor(Color::Cyan));
+    print!("\u{1F511} ");
+    let _ = execute!(out, ResetColor);
+    print!("{prompt}: ");
+    let _ = out.flush();
+
+    if enable_raw_mode().is_err() {
+        // Fallback: read with echo (no raw mode available)
+        let mut buf = String::new();
+        if io::stdin().read_line(&mut buf).is_err() {
+            return None;
+        }
+        let s = buf.trim().to_string();
+        return if s.is_empty() { None } else { Some(s) };
+    }
+
+    let mut password = String::new();
+    let result = loop {
+        match read() {
+            Ok(Event::Key(key)) => match key.code {
+                KeyCode::Enter => break Some(password.clone()),
+                KeyCode::Esc => break None,
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => break None,
+                KeyCode::Backspace | KeyCode::Delete => {
+                    password.pop();
+                }
+                KeyCode::Char(c) => {
+                    password.push(c);
+                }
+                _ => {}
+            },
+            Err(_) => break None,
+            _ => {}
+        }
+    };
+    let _ = disable_raw_mode();
+    println!();
+    result.filter(|s| !s.is_empty())
+}
+
+/// Prints a numbered option menu and reads the user's choice.
+/// Returns the 0-based index of the selected option.
+pub fn prompt_choice(prompt: &str, options: &[&str]) -> usize {
+    let mut out = io::stdout();
+    println!();
+    let _ = execute!(out, SetForegroundColor(Color::White));
+    println!("  {}", prompt);
+    let _ = execute!(out, ResetColor);
+    for (i, opt) in options.iter().enumerate() {
+        let _ = execute!(out, SetForegroundColor(Color::Yellow));
+        print!("    {}) ", i + 1);
+        let _ = execute!(out, ResetColor);
+        println!("{}", opt);
+    }
+    println!();
+    loop {
+        print!("  Choice [1-{}]: ", options.len());
+        let _ = out.flush();
+        let mut buf = String::new();
+        if io::stdin().read_line(&mut buf).is_err() {
+            return options.len().saturating_sub(1);
+        }
+        if let Ok(n) = buf.trim().parse::<usize>() {
+            if n >= 1 && n <= options.len() {
+                return n - 1;
+            }
+        }
+    }
+}
+
 /// Prompts the user with a yes/no/cancel question and returns `"y"`, `"n"`, or `"c"`.
 pub fn confirm(msg: &str) -> String {
     let mut out = io::stdout();
@@ -180,7 +257,7 @@ pub fn print_banner() {
     );
     print_box_line(
         &mut out,
-        "v1.0.6  \u{2502}  Type 'help' for commands",
+        "v2.0.0  \u{2502}  Type 'help' for commands",
         Color::DarkGrey,
         true,
     );

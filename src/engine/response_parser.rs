@@ -12,6 +12,8 @@ pub struct WorkbookOpenResult {
     pub active_sheet_id: Option<String>,
     pub status_code: i32,
     pub status_message: Option<String>,
+    pub is_repaired: bool,
+    pub unsupported_features: Vec<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -126,10 +128,33 @@ pub fn parse_workbook_open(json_str: &str) -> Option<WorkbookOpenResult> {
     let mut sheet_count = 0i32;
     let mut active_sheet_id: Option<String> = None;
 
+    let mut is_repaired = false;
+    let mut unsupported_features: Vec<String> = Vec::new();
+
+    // is_xlsx_file_repaired can appear at the top level
+    if let Some(true) = get_bool(&json, "is_xlsx_file_repaired") {
+        is_repaired = true;
+    }
+
     if let Some(resp) = get_obj(&json, "response") {
         rid = get_str(resp, "rid");
         workbook_name = get_str(resp, "workbook_name");
         sheet_count = get_int(resp, "sheet_count").unwrap_or(0);
+
+        if let Some(true) = get_bool(resp, "is_xlsx_file_repaired") {
+            is_repaired = true;
+        }
+
+        // Collect unsupported features (xlsx and dsv variants)
+        for key in &["unsupported_features", "dsv_unsupported_features"] {
+            if let Some(arr) = get_arr(resp, key) {
+                for item in arr {
+                    if let Some(s) = item.as_str() {
+                        unsupported_features.push(s.to_string());
+                    }
+                }
+            }
+        }
 
         // Try multiple locations for active sheet id
         active_sheet_id = get_str(resp, "active_sheet_id")
@@ -176,6 +201,8 @@ pub fn parse_workbook_open(json_str: &str) -> Option<WorkbookOpenResult> {
         active_sheet_id,
         status_code,
         status_message,
+        is_repaired,
+        unsupported_features,
     })
 }
 
@@ -349,9 +376,9 @@ fn navigate_to_cell_value(json: &Value) -> Option<&Value> {
     get_obj(cell_info, "cell_value")
 }
 
-/// Parses a range fetch response into a grid of display values.
-/// Returns a Vec of (row, col, display_value) tuples.
-pub fn parse_range_cell_values(json_str: &str) -> Vec<(i32, i32, String)> {
+/// Parses a range fetch response into a grid of cell values.
+/// Returns a Vec of (row, col, display_value, raw_value, formula_value) tuples.
+pub fn parse_range_cell_values(json_str: &str) -> Vec<(i32, i32, String, String, String)> {
     let mut results = Vec::new();
     let json = match parse_root(json_str) {
         Some(v) => v,
@@ -393,15 +420,16 @@ pub fn parse_range_cell_values(json_str: &str) -> Vec<(i32, i32, String)> {
             if !ci.is_object() {
                 continue;
             }
-            let row = get_int(ci, "row").unwrap_or(-1);
-            let col = get_int(ci, "col").unwrap_or(-1);
+            let row = get_int(ci, "row_index").unwrap_or(-1);
+            let col = get_int(ci, "column_index").unwrap_or(-1);
             if row < 0 || col < 0 {
                 continue;
             }
-            let display = get_obj(ci, "cell_value")
-                .and_then(|cv| get_str(cv, "display_value"))
-                .unwrap_or_default();
-            results.push((row, col, display));
+            let cv = get_obj(ci, "cell_value");
+            let display = cv.and_then(|v| get_str(v, "display_value")).unwrap_or_default();
+            let raw     = cv.and_then(|v| get_str(v, "actual_value")).unwrap_or_default();
+            let formula = cv.and_then(|v| get_str(v, "formula_value")).unwrap_or_default();
+            results.push((row, col, display, raw, formula));
         }
     }
 

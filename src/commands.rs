@@ -2,6 +2,7 @@
 ///
 /// Instead of the C# DI-based ICliCommand pattern, Rust uses a dispatch function
 /// that takes shared references to the engine, session, and parser.
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -176,23 +177,69 @@ fn open_existing_file(file_path: &str, engine: &EngineHandle, session: &mut CliS
         ".tsv" => Some(1),
         _ => None, // xlsx — engine default (2)
     };
-    let request = rb::build_open_workbook(&working_copy.to_string_lossy(), open_file_type);
-    match engine.process_request_json(&request) {
-        Ok(response) => {
-            if let Some(result) = rp::parse_workbook_open(&response) {
+    let working_path = working_copy.to_string_lossy().to_string();
+
+    // Password negotiation loop.
+    // Each iteration sends one request; the status code drives the next prompt.
+    let mut password: Option<String> = None;
+    loop {
+        let request = rb::build_open_workbook(&working_path, open_file_type, password.as_deref());
+        let response = match engine.process_request_json(&request) {
+            Ok(r) => r,
+            Err(e) => {
+                output::error(&format!("Engine error: {}", e));
+                return;
+            }
+        };
+
+        let result = match rp::parse_workbook_open(&response) {
+            Some(r) => r,
+            None => {
+                output::error(&format!("Engine failed to open '{}'.", file_name));
+                return;
+            }
+        };
+
+        match result.status_code {
+            // ── Success (100) or warning with unsupported features (500) ─────
+            100 | 500 => {
                 if result.rid.is_none() || result.rid.as_deref() == Some("") {
                     output::error(&format!("Engine failed to open '{}'.", file_name));
                     return;
                 }
+
+                // Warn about unsupported features
+                if !result.unsupported_features.is_empty() {
+                    output::warning(&format!(
+                        "Some features are not supported and were skipped: {}",
+                        result.unsupported_features.join(", ")
+                    ));
+                }
+
+                // Warn if the file was repaired
+                if result.is_repaired {
+                    output::warning(
+                        "This file was repaired on open and may have lost some data or formatting.",
+                    );
+                    let choice = output::confirm("Proceed with the repaired file?");
+                    if choice != "y" {
+                        // Close the workbook and abort
+                        if let Some(ref rid) = result.rid {
+                            let close_req = rb::build_close_workbook(rid);
+                            let _ = engine.process_request_json(&close_req);
+                        }
+                        output::info("Open cancelled.");
+                        return;
+                    }
+                }
+
                 let rid = result.rid.unwrap();
                 session.rid = Some(rid.clone());
-                session.workbook_name = result
-                    .workbook_name
-                    .or_else(|| {
-                        full_path
-                            .file_stem()
-                            .map(|s| s.to_string_lossy().to_string())
-                    });
+                session.workbook_name = result.workbook_name.or_else(|| {
+                    full_path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                });
                 session.sheet_count = if result.sheet_count > 0 {
                     result.sheet_count as usize
                 } else {
@@ -207,12 +254,111 @@ fn open_existing_file(file_path: &str, engine: &EngineHandle, session: &mut CliS
                 output::key_value("Workbook ID", session.rid.as_deref().unwrap_or(""), 2);
                 output::key_value("Sheets", &format_sheet_summary(session), 2);
                 output::key_value("Mode", "Offline", 2);
-            } else {
-                output::error(&format!("Engine failed to open '{}'.", file_name));
+                return;
+            }
+
+            // ── Open password required ────────────────────────────────────────
+            4135 => {
+                output::info("This file is password protected.");
+                match output::prompt_password("Enter password to open") {
+                    None => {
+                        // User cancelled — tell the engine to abort
+                        let _ = engine.process_request_json(
+                            &rb::build_open_workbook(&working_path, open_file_type, Some("Abort")),
+                        );
+                        output::info("Open cancelled.");
+                        return;
+                    }
+                    Some(pw) => password = Some(base64_encode(&pw)),
+                }
+            }
+
+            // ── Wrong open password ───────────────────────────────────────────
+            4132 => {
+                output::error("Incorrect password. Please try again.");
+                match output::prompt_password("Enter password to open") {
+                    None => {
+                        let _ = engine.process_request_json(
+                            &rb::build_open_workbook(&working_path, open_file_type, Some("Abort")),
+                        );
+                        output::info("Open cancelled.");
+                        return;
+                    }
+                    Some(pw) => password = Some(base64_encode(&pw)),
+                }
+            }
+
+            // ── Valid open password, but modification password also needed ────
+            4136 | 4137 => {
+                if result.status_code == 4137 {
+                    output::error("Incorrect modification password. Please try again.");
+                }
+                let choice = output::prompt_choice(
+                    "A modification password is required:",
+                    &["Open read-only", "Enter modification password", "Cancel"],
+                );
+                match choice {
+                    0 => password = Some(String::new()), // read-only: send empty string
+                    1 => match output::prompt_password("Enter modification password") {
+                        None => {
+                            let _ = engine.process_request_json(
+                                &rb::build_open_workbook(&working_path, open_file_type, Some("Abort")),
+                            );
+                            output::info("Open cancelled.");
+                            return;
+                        }
+                        Some(pw) => password = Some(base64_encode(&pw)),
+                    },
+                    _ => {
+                        let _ = engine.process_request_json(
+                            &rb::build_open_workbook(&working_path, open_file_type, Some("Abort")),
+                        );
+                        output::info("Open cancelled.");
+                        return;
+                    }
+                }
+            }
+
+            // ── Engine needs a yes/no read-only decision ──────────────────────
+            4138 => {
+                let choice = output::prompt_choice(
+                    "How would you like to open this file?",
+                    &["Open read-only", "Open for editing"],
+                );
+                // "Yes" = read-only, "No" = editing — must NOT be base64 encoded
+                password = Some(if choice == 0 { "Yes" } else { "No" }.to_string());
+            }
+
+            // ── Any other status code is a hard error ─────────────────────────
+            _ => {
+                output::error(&format!(
+                    "Failed to open '{}': {} (code {})",
+                    file_name,
+                    result.status_message.as_deref().unwrap_or("Unknown error"),
+                    result.status_code
+                ));
+                return;
             }
         }
-        Err(e) => output::error(&format!("Engine init failed: {}", e)),
     }
+}
+
+/// Encodes a UTF-8 string as standard Base64 (RFC 4648).
+fn base64_encode(input: &str) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes = input.as_bytes();
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(CHARS[((n >> 18) & 63) as usize] as char);
+        out.push(CHARS[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 { CHARS[((n >> 6) & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { CHARS[(n & 63) as usize] as char } else { '=' });
+    }
+    out
 }
 
 fn create_new_workbook(doc_name: &str, engine: &EngineHandle, session: &mut CliSession) {
@@ -615,17 +761,35 @@ fn cmd_cell(args: &[&str], engine: &EngineHandle, session: &mut CliSession) {
         return;
     }
     if args.len() < 2 {
-        output::error("Usage: cell get <ref> | cell set <ref> <value> | cell set <ref> --formula <expr> | cell set <ref> --hyperlink <link> [--text <display>] [--type <n>] | cell set <ref> --note <text>");
+        output::error("Usage: cell get <ref> | cell get <range> [--page <n>] | cell set <ref> <value> | cell set <ref> --formula <expr> | cell set <ref> --hyperlink <link> [--text <display>] [--type <n>] | cell set <ref> --note <text>");
         return;
     }
     match args[0].to_lowercase().as_str() {
-        "get" => cell_get(args[1], engine, session),
+        "get" => cell_get(&args[1..], engine, session),
         "set" => cell_set(args, engine, session),
         other => output::error(&format!("Unknown cell sub-command: '{}'. Use: get, set", other)),
     }
 }
 
-fn cell_get(cell_ref: &str, engine: &EngineHandle, session: &CliSession) {
+fn cell_get(args: &[&str], engine: &EngineHandle, session: &CliSession) {
+    if args.is_empty() {
+        output::error("Usage: cell get <ref> | cell get <range> [--page <n>]");
+        return;
+    }
+    let cell_ref = args[0];
+    let page: usize = if args.len() >= 3 && args[1].eq_ignore_ascii_case("--page") {
+        args[2].parse::<usize>().unwrap_or(1).max(1)
+    } else {
+        1
+    };
+    if cell_ref.contains(':') {
+        cell_get_range(cell_ref, page, engine, session);
+    } else {
+        cell_get_single(cell_ref, engine, session);
+    }
+}
+
+fn cell_get_single(cell_ref: &str, engine: &EngineHandle, session: &CliSession) {
     let (col, row) = match cell_ref::try_parse(cell_ref) {
         Some(p) => p,
         None => {
@@ -651,28 +815,17 @@ fn cell_get(cell_ref: &str, engine: &EngineHandle, session: &CliSession) {
                 }
 
                 let fallback = format!("Sheet{}", session.active_sheet_index);
-                let sheet_name = session
-                    .active_sheet_name
-                    .as_deref()
-                    .unwrap_or(&fallback);
+                let sheet_name = session.active_sheet_name.as_deref().unwrap_or(&fallback);
                 let ref_display = cell_ref::to_ref(col, row);
                 output::line(&format!("Cell {}  ({})", ref_display, sheet_name), 0);
                 output::key_value(
                     "Display",
-                    if result.display_value.is_empty() {
-                        "(empty)"
-                    } else {
-                        &result.display_value
-                    },
+                    if result.display_value.is_empty() { "(empty)" } else { &result.display_value },
                     2,
                 );
                 output::key_value(
                     "Raw",
-                    if result.raw_value.is_empty() {
-                        "(empty)"
-                    } else {
-                        &result.raw_value
-                    },
+                    if result.raw_value.is_empty() { "(empty)" } else { &result.raw_value },
                     2,
                 );
                 let formula_disp = if result.formula.is_empty() || result.formula == "null" {
@@ -689,6 +842,142 @@ fn cell_get(cell_ref: &str, engine: &EngineHandle, session: &CliSession) {
             }
         }
         Err(e) => output::error(&format!("Engine error reading {}: {}", cell_ref, e)),
+    }
+}
+
+const RANGE_PAGE_SIZE: usize = 25;
+
+fn cell_get_range(range_ref: &str, page: usize, engine: &EngineHandle, session: &CliSession) {
+    let (start_col, start_row, end_col, end_row) = match cell_ref::try_parse_range(range_ref) {
+        Some(r) => r,
+        None => {
+            output::error(&format!("Invalid range reference: '{}'", range_ref));
+            return;
+        }
+    };
+
+    let rid = session.rid.as_deref().unwrap();
+    let sheet_id = session.get_active_sheet_id_or_default();
+
+    // Build the full ordered cell list (row-major)
+    let mut all_cells: Vec<(i32, i32)> = Vec::new();
+    for r in start_row..=end_row {
+        for c in start_col..=end_col {
+            all_cells.push((r, c));
+        }
+    }
+    let total = all_cells.len();
+
+    let total_pages = (total + RANGE_PAGE_SIZE - 1) / RANGE_PAGE_SIZE;
+    if page > total_pages {
+        output::error(&format!(
+            "Page {} out of range. There {} {} page(s) for this range.",
+            page,
+            if total_pages == 1 { "is" } else { "are" },
+            total_pages
+        ));
+        return;
+    }
+
+    let skip = (page - 1) * RANGE_PAGE_SIZE;
+    let page_cells = &all_cells[skip..(skip + RANGE_PAGE_SIZE).min(total)];
+    let page_end = skip + page_cells.len();
+
+    // Fetch all cells in the range in one request
+    let fetch_req = rb::build_range_cell_fetch(rid, &sheet_id, start_row, start_col, end_row, end_col);
+    let values = match engine.fetch_json(&fetch_req) {
+        Ok(resp) => rp::parse_range_cell_values(&resp),
+        Err(e) => {
+            output::error(&format!("Engine error reading range: {}", e));
+            return;
+        }
+    };
+
+    // Build lookup: (row, col) → (display, raw, formula)
+    let mut lookup: HashMap<(i32, i32), (String, String, String)> = HashMap::new();
+    for (r, c, display, raw, formula) in values {
+        lookup.insert((r, c), (display, raw, formula));
+    }
+
+    let fallback = format!("Sheet{}", session.active_sheet_index);
+    let sheet_name = session.active_sheet_name.as_deref().unwrap_or(&fallback);
+    let range_display = format!(
+        "{}:{}",
+        cell_ref::to_ref(start_col, start_row),
+        cell_ref::to_ref(end_col, end_row)
+    );
+
+    let header = if total_pages > 1 {
+        format!("Range {}  ({})  — page {} of {}", range_display, sheet_name, page, total_pages)
+    } else {
+        format!("Range {}  ({})", range_display, sheet_name)
+    };
+    output::line(&header, 0);
+
+    // Collect row data for the current page
+    const COL_CAP: usize = 30;
+    let col_headers = ["Ref", "Display", "Raw", "Formula"];
+    let mut widths = [col_headers[0].len(), col_headers[1].len(), col_headers[2].len(), col_headers[3].len()];
+
+    let mut rows_data: Vec<[String; 4]> = Vec::new();
+    for &(r, c) in page_cells {
+        let ref_str = cell_ref::to_ref(c, r);
+        let (disp, raw, formula) = lookup.remove(&(r, c)).unwrap_or_default();
+        let disp_str    = if disp.is_empty()                          { "(empty)".into() } else { disp };
+        let raw_str     = if raw.is_empty()                           { "(empty)".into() } else { raw };
+        let formula_str = if formula.is_empty() || formula == "null"  { "(none)".into()  } else { formula };
+        widths[0] = widths[0].max(ref_str.len().min(COL_CAP));
+        widths[1] = widths[1].max(disp_str.len().min(COL_CAP));
+        widths[2] = widths[2].max(raw_str.len().min(COL_CAP));
+        widths[3] = widths[3].max(formula_str.len().min(COL_CAP));
+        rows_data.push([ref_str, disp_str, raw_str, formula_str]);
+    }
+
+    let separator: String = widths.iter().map(|&w| "─".repeat(w + 2)).collect::<Vec<_>>().join("─");
+    output::line(&separator, 0);
+    output::line(
+        &format!(
+            "{:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}",
+            col_headers[0], col_headers[1], col_headers[2], col_headers[3],
+            w0 = widths[0], w1 = widths[1], w2 = widths[2], w3 = widths[3]
+        ),
+        0,
+    );
+    output::line(&separator, 0);
+
+    for row_data in &rows_data {
+        output::line(
+            &format!(
+                "{:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}",
+                truncate_cell(&row_data[0], widths[0]),
+                truncate_cell(&row_data[1], widths[1]),
+                truncate_cell(&row_data[2], widths[2]),
+                truncate_cell(&row_data[3], widths[3]),
+                w0 = widths[0], w1 = widths[1], w2 = widths[2], w3 = widths[3]
+            ),
+            0,
+        );
+    }
+
+    if total > RANGE_PAGE_SIZE {
+        let next_hint = if page < total_pages {
+            format!("  Run: cell get {} --page {}", range_display, page + 1)
+        } else {
+            String::new()
+        };
+        output::line(
+            &format!("\nShowing {}-{} of {}.{}", skip + 1, page_end, total, next_hint),
+            0,
+        );
+    }
+}
+
+fn truncate_cell(s: &str, max_chars: usize) -> String {
+    let count = s.chars().count();
+    if count <= max_chars {
+        s.to_string()
+    } else {
+        s.chars().take(max_chars.saturating_sub(3)).collect::<String>() + "..."
     }
 }
 
@@ -10869,6 +11158,9 @@ fn print_help_file() {
 fn print_help_file_content() {
     output::help_section("FILE");
     output::help_cmd("open <filepath>", "Open a local file (.xlsx, .csv, .tsv)");
+    output::help_detail("Password-protected files: you will be prompted interactively.");
+    output::help_detail("  Open password   → enter when prompted (input is hidden)");
+    output::help_detail("  Modify password → choose read-only or enter the modify password");
     output::help_cmd("open --new <docname>", "Create a new blank workbook");
     output::help_cmd("save", "Save to original path");
     output::help_cmd("save --as <path>", "Save a copy / export (format from extension)");
@@ -10885,7 +11177,7 @@ fn print_help_worksheet() {
 fn print_help_worksheet_content() {
     output::help_section("WORKSHEETS");
     output::help_cmd("worksheet list", "List all sheets in the open workbook");
-    output::help_cmd("worksheet switch <name|index>", "Switch the active sheet");
+    output::help_cmd("worksheet switch <name|index>", "Switch to another sheet");
     output::help_cmd("worksheet add <name>", "Add a new sheet");
     output::help_cmd("worksheet delete <name|index>", "Delete a sheet");
     output::help_cmd("worksheet rename <old> <new>", "Rename a sheet");
