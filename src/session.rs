@@ -22,6 +22,19 @@ pub struct CliSession {
     /// Cache of chart renames: maps user-assigned name → chart_id.
     /// Cleared on sheet switch or workbook close.
     pub chart_name_cache: std::collections::HashMap<String, String>,
+    /// Cached CF rules from the last `cf list` call.
+    /// Each entry: (rule_id, rule_type, range_label, summary).
+    pub last_cf_rules: Vec<CfRuleEntry>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CfRuleEntry {
+    pub rule_id: String,
+    pub rule_type: String,
+    pub range_label: String,
+    pub range_json: serde_json::Value,
+    pub summary: String,
+    pub full_rule: serde_json::Value,
 }
 
 impl CliSession {
@@ -64,5 +77,6 @@ impl CliSession {
         self.sheet_names.clear();
         self.sheet_ids.clear();
         self.chart_name_cache.clear();
+        self.last_cf_rules.clear();
     }
 }

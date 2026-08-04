@@ -59,6 +59,36 @@ pub fn key_value(key: &str, value: &str, indent: usize) {
     println!("{:<14}: {}", key, value);
 }
 
+/// Prints a labelled two-column table of key/value rows.
+pub fn kv_table<K: AsRef<str>, V: AsRef<str>>(title: &str, rows: &[(K, V)]) {
+    const KEY_WIDTH: usize = 24;
+    const INDENT: usize = 2;
+    let mut out = io::stdout();
+
+    println!();
+    let _ = queue!(out, SetForegroundColor(Color::White));
+    println!("{}{}:", " ".repeat(INDENT), title);
+    let _ = queue!(out, ResetColor);
+
+    let divider: String = std::iter::repeat(THIN_H).take(KEY_WIDTH + 32).collect();
+    let _ = queue!(out, SetForegroundColor(Color::DarkGrey));
+    println!("{}{}", " ".repeat(INDENT), divider);
+    let _ = queue!(out, ResetColor);
+
+    for (key, value) in rows {
+        let k = key.as_ref();
+        let v = value.as_ref();
+        let pad = KEY_WIDTH.saturating_sub(k.chars().count());
+        print!("{}", " ".repeat(INDENT));
+        let _ = queue!(out, SetForegroundColor(Color::DarkCyan));
+        print!("{k}");
+        let _ = queue!(out, ResetColor);
+        print!("{}", " ".repeat(pad));
+        println!("{v}");
+    }
+    println!();
+}
+
 /// Prints a blank line for visual separation.
 pub fn blank_line() {
     println!();
@@ -150,7 +180,7 @@ pub fn print_banner() {
     );
     print_box_line(
         &mut out,
-        "v1.0.20  \u{2502}  Type 'help' for commands",
+        "v1.0.6  \u{2502}  Type 'help' for commands",
         Color::DarkGrey,
         true,
     );

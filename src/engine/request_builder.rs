@@ -9,9 +9,162 @@ pub const ACTION_CREATE_WORKBOOK: i32 = 128;
 pub const ACTION_CREATE_WORKSHEET: i32 = 104;
 pub const ACTION_EXPORT_WORKBOOK: i32 = 270;
 pub const ACTION_CONTENT_API: i32 = 0;
+pub const ACTION_INSERT_HYPERLINK: i32 = 56;
+pub const ACTION_INSERT_NOTE: i32 = 57;
+pub const ACTION_INSERT_CHECKBOX: i32 = 321;
+pub const ACTION_UPDATE_CHECKBOX: i32 = 322;
+pub const ACTION_DELETE_CHECKBOX: i32 = 323;
+pub const ACTION_INSERT_CLASSIC_RULE: i32 = 238;
+pub const ACTION_INSERT_COLOR_SCALE_RULE: i32 = 752;
+pub const ACTION_INSERT_ICON_SET_RULE: i32 = 780;
+pub const ACTION_INSERT_DATA_BAR_RULE: i32 = 782;
+pub const ACTION_EDIT_CLASSIC_RULE: i32 = 239;
+pub const ACTION_EDIT_COLOR_SCALE_RULE: i32 = 751;
+pub const ACTION_EDIT_ICON_SET_RULE: i32 = 781;
+pub const ACTION_EDIT_DATA_BAR_RULE: i32 = 783;
+pub const ACTION_UPDATE_CF_RULE_PRIORITY: i32 = 753;
+pub const ACTION_DELETE_CF_RULE: i32 = 240;
+pub const ACTION_MANAGE_CF_RULES: i32 = 10116;
 pub const ACTION_ACTIVE_CELL_INFO: i32 = 17988;
 pub const ACTION_EDIT_CELL_INFO: i32 = 8552;
 pub const ACTION_CLOSE_WORKBOOK: i32 = 185;
+
+// Conditional formatting key definitions
+pub const CF_RULE_TYPE_COLOR_SCALE: i32 = 0;
+pub const CF_RULE_TYPE_DATA_BAR: i32 = 1;
+pub const CF_RULE_TYPE_ICON_SETS: i32 = 2;
+pub const CF_RULE_TYPE_CLASSIC: i32 = 3;
+
+pub const CF_FONT_STYLE_REGULAR: i32 = 0;
+pub const CF_FONT_STYLE_ITALIC: i32 = 1;
+pub const CF_FONT_STYLE_BOLD: i32 = 2;
+pub const CF_FONT_STYLE_BOLD_ITALIC: i32 = 3;
+pub const CF_FONT_STYLE_AUTOMATIC: i32 = 4;
+
+pub const CF_STRIKE_TYPE_ON: i32 = 0;
+pub const CF_STRIKE_TYPE_OFF: i32 = 1;
+pub const CF_STRIKE_TYPE_AUTOMATIC: i32 = 2;
+
+pub const CF_UNDERLINE_TYPE_NONE: i32 = 1;
+pub const CF_UNDERLINE_TYPE_SINGLE: i32 = 2;
+pub const CF_UNDERLINE_TYPE_DOUBLE: i32 = 3;
+pub const CF_UNDERLINE_TYPE_SINGLE_ACCOUNTING: i32 = 4;
+pub const CF_UNDERLINE_TYPE_DOUBLE_ACCOUNTING: i32 = 5;
+
+pub const CF_BORDER_TYPE_LEFT: i32 = 0;
+pub const CF_BORDER_TYPE_RIGHT: i32 = 1;
+pub const CF_BORDER_TYPE_TOP: i32 = 2;
+pub const CF_BORDER_TYPE_BOTTOM: i32 = 3;
+
+pub const CF_BORDERLINE_TYPE_NONE: i32 = 1;
+pub const CF_BORDERLINE_TYPE_DASH_DOT: i32 = 2;
+pub const CF_BORDERLINE_TYPE_DASH_DOT_DOT: i32 = 3;
+pub const CF_BORDERLINE_TYPE_DASHED: i32 = 4;
+pub const CF_BORDERLINE_TYPE_DOTTED: i32 = 5;
+pub const CF_BORDERLINE_TYPE_DOUBLE: i32 = 6;
+pub const CF_BORDERLINE_TYPE_HAIRLINE: i32 = 7;
+pub const CF_BORDERLINE_TYPE_MEDIUM: i32 = 8;
+pub const CF_BORDERLINE_TYPE_MEDIUM_DASH_DOT: i32 = 9;
+pub const CF_BORDERLINE_TYPE_MEDIUM_DASH_DOT_DOT: i32 = 10;
+pub const CF_BORDERLINE_TYPE_MEDIUM_DASHED: i32 = 11;
+pub const CF_BORDERLINE_TYPE_THICK: i32 = 12;
+pub const CF_BORDERLINE_TYPE_THIN: i32 = 13;
+pub const CF_BORDERLINE_TYPE_SLANT_DASH_DOT: i32 = 14;
+
+pub const CF_NUMBER_FORMAT_GENERAL: i32 = 1;
+pub const CF_NUMBER_FORMAT_NUMBER: i32 = 2;
+pub const CF_NUMBER_FORMAT_CURRENCY: i32 = 3;
+pub const CF_NUMBER_FORMAT_ACCOUNTING: i32 = 4;
+pub const CF_NUMBER_FORMAT_DATE: i32 = 5;
+pub const CF_NUMBER_FORMAT_TIME: i32 = 6;
+pub const CF_NUMBER_FORMAT_DURATION: i32 = 7;
+pub const CF_NUMBER_FORMAT_PERCENTAGE: i32 = 8;
+pub const CF_NUMBER_FORMAT_SCIENTIFIC: i32 = 9;
+pub const CF_NUMBER_FORMAT_FRACTION: i32 = 10;
+pub const CF_NUMBER_FORMAT_TEXT: i32 = 11;
+pub const CF_NUMBER_FORMAT_REGIONAL: i32 = 12;
+pub const CF_NUMBER_FORMAT_CUSTOM: i32 = 13;
+
+pub const CF_CRITERIA_NUMBER: i32 = 0;
+pub const CF_CRITERIA_PERCENT: i32 = 1;
+pub const CF_CRITERIA_PERCENTILE: i32 = 2;
+pub const CF_CRITERIA_FORMULA: i32 = 3;
+pub const CF_CRITERIA_MINIMUM_VALUE: i32 = 4;
+pub const CF_CRITERIA_MAXIMUM_VALUE: i32 = 5;
+pub const CF_CRITERIA_NUMBER_COMPARISON: i32 = 6;
+pub const CF_CRITERIA_DATE: i32 = 7;
+pub const CF_CRITERIA_TEXT: i32 = 8;
+pub const CF_CRITERIA_CELL_CONTAINING: i32 = 9;
+pub const CF_CRITERIA_AVERAGE: i32 = 10;
+pub const CF_CRITERIA_STANDARD_DEVIATION: i32 = 11;
+pub const CF_CRITERIA_AUTOMATIC: i32 = 12;
+pub const CF_CRITERIA_TOP_BOTTOM_VALUES: i32 = 13;
+pub const CF_CRITERIA_NONE: i32 = 14;
+
+pub const CF_SUB_NUMBER_COMPARISON_EQUAL_TO: i32 = 0;
+pub const CF_SUB_NUMBER_COMPARISON_NOT_EQUAL_TO: i32 = 1;
+pub const CF_SUB_NUMBER_COMPARISON_BETWEEN: i32 = 2;
+pub const CF_SUB_NUMBER_COMPARISON_NOT_BETWEEN: i32 = 3;
+pub const CF_SUB_NUMBER_COMPARISON_GREATER_THAN: i32 = 4;
+pub const CF_SUB_NUMBER_COMPARISON_LESS_THAN: i32 = 5;
+pub const CF_SUB_NUMBER_COMPARISON_GREATER_THAN_OR_EQUAL_TO: i32 = 6;
+pub const CF_SUB_NUMBER_COMPARISON_LESS_THAN_OR_EQUAL_TO: i32 = 7;
+
+pub const CF_SUB_DATE_YESTERDAY: i32 = 0;
+pub const CF_SUB_DATE_TODAY: i32 = 1;
+pub const CF_SUB_DATE_TOMORROW: i32 = 2;
+pub const CF_SUB_DATE_LAST_7_DAYS: i32 = 3;
+pub const CF_SUB_DATE_LAST_WEEK: i32 = 4;
+pub const CF_SUB_DATE_THIS_WEEK: i32 = 5;
+pub const CF_SUB_DATE_NEXT_WEEK: i32 = 6;
+pub const CF_SUB_DATE_LAST_MONTH: i32 = 7;
+pub const CF_SUB_DATE_THIS_MONTH: i32 = 8;
+pub const CF_SUB_DATE_NEXT_MONTH: i32 = 9;
+pub const CF_SUB_DATE_EQUAL_TO: i32 = 10;
+pub const CF_SUB_DATE_NOT_EQUAL_TO: i32 = 11;
+pub const CF_SUB_DATE_BETWEEN: i32 = 12;
+pub const CF_SUB_DATE_NOT_BETWEEN: i32 = 13;
+pub const CF_SUB_DATE_GREATER_THAN: i32 = 14;
+pub const CF_SUB_DATE_LESS_THAN: i32 = 15;
+pub const CF_SUB_DATE_GREATER_THAN_OR_EQUAL_TO: i32 = 16;
+pub const CF_SUB_DATE_LESS_THAN_OR_EQUAL_TO: i32 = 17;
+pub const CF_SUB_DATE_NEXT_7_DAYS: i32 = 18;
+pub const CF_SUB_DATE_LAST_YEAR: i32 = 19;
+pub const CF_SUB_DATE_THIS_YEAR: i32 = 20;
+pub const CF_SUB_DATE_NEXT_YEAR: i32 = 21;
+
+pub const CF_SUB_TEXT_CONTAINS: i32 = 0;
+pub const CF_SUB_TEXT_NOT_CONTAINS: i32 = 1;
+pub const CF_SUB_TEXT_BEGINS_WITH: i32 = 2;
+pub const CF_SUB_TEXT_ENDS_WITH: i32 = 3;
+
+pub const CF_SUB_CELL_CONTAINING_DUPLICATE_VALUES: i32 = 0;
+pub const CF_SUB_CELL_CONTAINING_UNIQUE_VALUES: i32 = 1;
+pub const CF_SUB_CELL_CONTAINING_BLANKS: i32 = 2;
+pub const CF_SUB_CELL_CONTAINING_NO_BLANKS: i32 = 3;
+pub const CF_SUB_CELL_CONTAINING_ERRORS: i32 = 4;
+pub const CF_SUB_CELL_CONTAINING_NO_ERRORS: i32 = 5;
+
+pub const CF_SUB_TOP_BOTTOM_TOP: i32 = 0;
+pub const CF_SUB_TOP_BOTTOM_BOTTOM: i32 = 1;
+
+pub const CF_SUB_AVERAGE_ABOVE: i32 = 0;
+pub const CF_SUB_AVERAGE_BELOW: i32 = 1;
+pub const CF_SUB_AVERAGE_EQUAL_OR_ABOVE: i32 = 2;
+pub const CF_SUB_AVERAGE_BELOW_OR_EQUAL: i32 = 3;
+
+pub const CF_SUB_STDDEV_ONE_ABOVE: i32 = 0;
+pub const CF_SUB_STDDEV_ONE_BELOW: i32 = 1;
+pub const CF_SUB_STDDEV_TWO_ABOVE: i32 = 2;
+pub const CF_SUB_STDDEV_TWO_BELOW: i32 = 3;
+pub const CF_SUB_STDDEV_THREE_ABOVE: i32 = 4;
+pub const CF_SUB_STDDEV_THREE_BELOW: i32 = 5;
+
+pub const CF_CLEAR_RULES_IN_RANGE: i32 = 0;
+pub const CF_CLEAR_RULES_IN_CURRENT_SHEET: i32 = 1;
+pub const CF_SCOPE_WORKBOOK: i32 = 0;
+pub const CF_SCOPE_SHEET: i32 = 1;
+pub const CF_SCOPE_RANGE: i32 = 2;
 
 // Sheet management
 pub const ACTION_DELETE_WORKSHEET: i32 = 100;
@@ -111,6 +264,31 @@ pub const ACTION_COPY_PIVOT_TABLE: i32 = 933;
 pub const ACTION_EDIT_PIVOT_NAME: i32 = 934;
 pub const ACTION_REFRESH_PIVOT_TABLE_ON_LOAD: i32 = 935;
 
+// Data Validation
+pub const ACTION_DV_READ_RANGE: i32 = 671;
+pub const ACTION_DV_CREATE_RULE: i32 = 672;
+pub const ACTION_DV_EDIT_RULE: i32 = 663;
+pub const ACTION_DV_MANAGE_RULES: i32 = 669;
+pub const ACTION_DV_CLEAR_RULE: i32 = 667;
+
+pub const DV_CRITERIA_WHOLE_NUMBER: i32 = 0;
+pub const DV_CRITERIA_DECIMAL: i32 = 1;
+pub const DV_CRITERIA_LIST: i32 = 2;
+pub const DV_CRITERIA_DATE_TIME: i32 = 3;
+pub const DV_CRITERIA_TEXT_LENGTH: i32 = 4;
+pub const DV_CRITERIA_CUSTOM: i32 = 5;
+pub const DV_CRITERIA_TEXT: i32 = 6;
+pub const DV_CRITERIA_CELL_RANGE: i32 = 7;
+pub const DV_CRITERIA_ANY_VALUE: i32 = 8;
+
+pub const DV_ERROR_STYLE_STOP: i32 = 0;
+pub const DV_ERROR_STYLE_WARNING: i32 = 1;
+pub const DV_ERROR_STYLE_INFORMATION: i32 = 2;
+
+pub const DV_SCOPE_WORKBOOK: i32 = 0;
+pub const DV_SCOPE_SHEET: i32 = 1;
+pub const DV_SCOPE_RANGE: i32 = 2;
+
 // Chart
 pub const ACTION_CLONE_CHART: i32 = 71;
 pub const ACTION_DELETE_CHART: i32 = 73;
@@ -123,6 +301,8 @@ pub const ACTION_RECOMMEND_CHART: i32 = 695;
 pub const ACTION_MANAGE_TOP_BOTTOM: i32 = 697;
 pub const ACTION_UPDATE_CHART_TYPE: i32 = 1122;
 pub const ACTION_CUSTOMIZE_CHART_PROPERTY_ONE: i32 = 6001;
+pub const ACTION_APPLY_THEME: i32 = 1111;
+pub const ACTION_GET_THEMES: i32 = 1113;
 pub const ACTION_MOVE_CHART: i32 = 6002;
 
 // Font formatting
@@ -347,6 +527,349 @@ pub fn build_set_cell_value(
         "active_info": build_active_info(sheet_id, row, col)
     })
     .to_string()
+}
+
+/// Build an Insert Hyperlink request (action_id = ACTION_INSERT_HYPERLINK)
+/// Matches the engine's sample JSON: uses `row_index`/`column_index`, `link`,
+/// optional `display_text`, `link_type` and an `active_info` block.
+pub fn build_insert_hyperlink(
+    rid: &str,
+    sheet_id: &str,
+    row: i32,
+    col: i32,
+    link: &str,
+    display_text: Option<&str>,
+    link_type: i32,
+) -> String {
+    let mut v = json!({
+        "action_id": ACTION_INSERT_HYPERLINK,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "row_index": row,
+        "column_index": col,
+        "link": link,
+        "link_type": link_type,
+        "active_info": build_active_info(sheet_id, row, col)
+    });
+
+    if let Some(text) = display_text {
+        v["display_text"] = json!(text);
+    }
+
+    v.to_string()
+}
+
+/// Build an Insert Note request (action_id = ACTION_INSERT_NOTE)
+pub fn build_insert_note(
+    rid: &str,
+    sheet_id: &str,
+    row: i32,
+    col: i32,
+    notes: &str,
+) -> String {
+    json!({
+        "action_id": ACTION_INSERT_NOTE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "row_index": row,
+        "column_index": col,
+        "notes": notes,
+        "active_info": build_active_info(sheet_id, row, col)
+    })
+    .to_string()
+}
+
+/// Build an Insert Checkbox request (action_id = ACTION_INSERT_CHECKBOX)
+/// for a selected cell range.
+pub fn build_insert_checkbox(
+    rid: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    let range = build_range_object(start_row, start_col, end_row, end_col);
+    json!({
+        "action_id": ACTION_INSERT_CHECKBOX,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": [range.clone()],
+        "active_info": {
+            "active_sheet_id": sheet_id,
+            "active_range_list": [range],
+            "active_cell": build_active_cell(start_row, start_col)
+        }
+    })
+    .to_string()
+}
+
+/// Build an Update Checkbox request (action_id = ACTION_UPDATE_CHECKBOX)
+/// for a selected cell range.
+pub fn build_update_checkbox(
+    rid: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+    boolean_value: bool,
+) -> String {
+    let range = build_range_object(start_row, start_col, end_row, end_col);
+    json!({
+        "action_id": ACTION_UPDATE_CHECKBOX,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": [range.clone()],
+        "boolean_value": boolean_value,
+        "active_info": {
+            "active_sheet_id": sheet_id,
+            "active_range_list": [range],
+            "active_cell": build_active_cell(start_row, start_col)
+        }
+    })
+    .to_string()
+}
+
+/// Build a Delete Checkbox request (action_id = ACTION_DELETE_CHECKBOX)
+/// for a selected cell range.
+pub fn build_delete_checkbox(
+    rid: &str,
+    sheet_id: &str,
+    start_row: i32,
+    start_col: i32,
+    end_row: i32,
+    end_col: i32,
+) -> String {
+    let range = build_range_object(start_row, start_col, end_row, end_col);
+    json!({
+        "action_id": ACTION_DELETE_CHECKBOX,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": [range.clone()],
+        "active_info": {
+            "active_sheet_id": sheet_id,
+            "active_range_list": [range],
+            "active_cell": build_active_cell(start_row, start_col)
+        }
+    })
+    .to_string()
+}
+
+/// Build an Insert Classic Rule request (action_id = ACTION_INSERT_CLASSIC_RULE).
+/// `range_list`, `rule`, and `active_info` are passed through as-is so callers
+/// can construct complete payloads per NativeClientEngine key definitions.
+pub fn build_insert_classic_rule(
+    rid: &str,
+    sheet_id: &str,
+    range_list: &[Value],
+    rule: &[Value],
+    active_info: Value,
+) -> String {
+    json!({
+        "action_id": ACTION_INSERT_CLASSIC_RULE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": range_list,
+        "rule": rule,
+        "active_info": active_info
+    })
+    .to_string()
+}
+
+/// Build an Insert Color Scale Rule request (action_id = ACTION_INSERT_COLOR_SCALE_RULE).
+pub fn build_insert_color_scale_rule(
+    rid: &str,
+    sheet_id: &str,
+    range_list: &[Value],
+    rule: Value,
+    active_info: Value,
+) -> String {
+    json!({
+        "action_id": ACTION_INSERT_COLOR_SCALE_RULE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": range_list,
+        "rule": rule,
+        "active_info": active_info
+    })
+    .to_string()
+}
+
+/// Build an Insert Data Bar Rule request (action_id = ACTION_INSERT_DATA_BAR_RULE).
+pub fn build_insert_data_bar_rule(
+    rid: &str,
+    sheet_id: &str,
+    range_list: &[Value],
+    rule: Value,
+    active_info: Value,
+) -> String {
+    json!({
+        "action_id": ACTION_INSERT_DATA_BAR_RULE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": range_list,
+        "rule": rule,
+        "active_info": active_info
+    })
+    .to_string()
+}
+
+/// Build an Insert Icon Set Rule request (action_id = ACTION_INSERT_ICON_SET_RULE).
+pub fn build_insert_icon_set_rule(
+    rid: &str,
+    sheet_id: &str,
+    range_list: &[Value],
+    rule: Value,
+    active_info: Value,
+) -> String {
+    json!({
+        "action_id": ACTION_INSERT_ICON_SET_RULE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": range_list,
+        "rule": rule,
+        "active_info": active_info
+    })
+    .to_string()
+}
+
+/// Build an Edit Classic Rule request (action_id = ACTION_EDIT_CLASSIC_RULE).
+pub fn build_edit_classic_rule(
+    rid: &str,
+    sheet_id: &str,
+    range_list: &[Value],
+    rule: Value,
+    active_info: Value,
+) -> String {
+    json!({
+        "action_id": ACTION_EDIT_CLASSIC_RULE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": range_list,
+        "rule": rule,
+        "active_info": active_info
+    })
+    .to_string()
+}
+
+/// Build an Edit Color Scale Rule request (action_id = ACTION_EDIT_COLOR_SCALE_RULE).
+pub fn build_edit_color_scale_rule(
+    rid: &str,
+    sheet_id: &str,
+    range_list: &[Value],
+    rule: Value,
+    active_info: Value,
+) -> String {
+    json!({
+        "action_id": ACTION_EDIT_COLOR_SCALE_RULE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": range_list,
+        "rule": rule,
+        "active_info": active_info
+    })
+    .to_string()
+}
+
+/// Build an Edit Data Bar Rule request (action_id = ACTION_EDIT_DATA_BAR_RULE).
+pub fn build_edit_data_bar_rule(
+    rid: &str,
+    sheet_id: &str,
+    range_list: &[Value],
+    rule: Value,
+    active_info: Value,
+) -> String {
+    json!({
+        "action_id": ACTION_EDIT_DATA_BAR_RULE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": range_list,
+        "rule": rule,
+        "active_info": active_info
+    })
+    .to_string()
+}
+
+/// Build an Edit Icon Set Rule request (action_id = ACTION_EDIT_ICON_SET_RULE).
+pub fn build_edit_icon_set_rule(
+    rid: &str,
+    sheet_id: &str,
+    range_list: &[Value],
+    rule: Value,
+    active_info: Value,
+) -> String {
+    json!({
+        "action_id": ACTION_EDIT_ICON_SET_RULE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": range_list,
+        "rule": rule,
+        "active_info": active_info
+    })
+    .to_string()
+}
+
+/// Build an Update Rule Priority request (action_id = ACTION_UPDATE_CF_RULE_PRIORITY).
+/// `priority_greater_than` is optional. When omitted, the updated rule gets the least priority.
+pub fn build_update_cf_rule_priority(
+    rid: &str,
+    sheet_id: &str,
+    rule_to_be_updated: &str,
+    priority_greater_than: Option<&str>,
+    active_info: Value,
+) -> String {
+    let mut payload = serde_json::Map::new();
+    payload.insert("action_id".into(), json!(ACTION_UPDATE_CF_RULE_PRIORITY));
+    payload.insert("rid".into(), json!(rid));
+    payload.insert("sheet_id".into(), json!(sheet_id));
+    payload.insert("rule_to_be_updated".into(), json!(rule_to_be_updated));
+    if let Some(priority_rule_id) = priority_greater_than {
+        payload.insert("priority_greater_than".into(), json!(priority_rule_id));
+    }
+    payload.insert("active_info".into(), active_info);
+    Value::Object(payload).to_string()
+}
+
+/// Build a Delete Rule request (action_id = ACTION_DELETE_CF_RULE).
+pub fn build_delete_cf_rule(
+    rid: &str,
+    sheet_id: &str,
+    rule_id: &str,
+    active_info: Value,
+) -> String {
+    json!({
+        "action_id": ACTION_DELETE_CF_RULE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "rule_id": rule_id,
+        "active_info": active_info
+    })
+    .to_string()
+}
+
+/// Build a Manage Rules request (action_id = ACTION_MANAGE_CF_RULES).
+/// `sheet_id` and `range_list` are optional and included when provided.
+pub fn build_manage_cf_rules(
+    rid: &str,
+    sheet_id: Option<&str>,
+    scope: i32,
+    range_list: Option<&[Value]>,
+) -> String {
+    let mut payload = serde_json::Map::new();
+    payload.insert("action_id".into(), json!(ACTION_MANAGE_CF_RULES));
+    payload.insert("rid".into(), json!(rid));
+    payload.insert("scope".into(), json!(scope));
+
+    if let Some(sid) = sheet_id {
+        payload.insert("sheet_id".into(), json!(sid));
+    }
+
+    if let Some(ranges) = range_list {
+        payload.insert("range_list".into(), Value::Array(ranges.to_vec()));
+    }
+
+    Value::Object(payload).to_string()
 }
 
 pub fn build_get_cell_info(rid: &str, sheet_id: &str, row: i32, col: i32) -> String {
@@ -2580,6 +3103,124 @@ pub fn build_manage_top_bottom(
         "sheet_id": sheet_id,
         "chart_id": chart_id,
         "active_info": build_active_info(sheet_id, 0, 0)
+    })
+    .to_string()
+}
+
+// ─── Data Validation ─────────────────────────────────────────────────────────
+
+pub fn build_dv_read_range(
+    rid: &str,
+    sheet_id: &str,
+    range_list: &serde_json::Value,
+    read_range_option: Option<serde_json::Value>,
+) -> String {
+    let mut req = json!({
+        "action_id": ACTION_DV_READ_RANGE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": range_list,
+    });
+    if let Some(opt) = read_range_option {
+        req["read_range_option"] = opt;
+    }
+    req.to_string()
+}
+
+pub fn build_dv_create_rule(
+    rid: &str,
+    sheet_id: &str,
+    range_list: &serde_json::Value,
+    condition: serde_json::Value,
+    active_info: serde_json::Value,
+) -> String {
+    json!({
+        "action_id": ACTION_DV_CREATE_RULE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "range_list": range_list,
+        "condition": condition,
+        "active_info": active_info,
+    })
+    .to_string()
+}
+
+pub fn build_dv_edit_rule(
+    rid: &str,
+    sheet_id: &str,
+    start_row: i64,
+    start_column: i64,
+    end_row: i64,
+    end_column: i64,
+    condition: serde_json::Value,
+    active_info: serde_json::Value,
+) -> String {
+    json!({
+        "action_id": ACTION_DV_EDIT_RULE,
+        "rid": rid,
+        "sheet_id": sheet_id,
+        "start_row": start_row,
+        "start_column": start_column,
+        "end_row": end_row,
+        "end_column": end_column,
+        "condition": condition,
+        "active_info": active_info,
+    })
+    .to_string()
+}
+
+pub fn build_dv_manage_rules(
+    rid: &str,
+    scope: i32,
+    sheet_id: Option<&str>,
+    range_list: Option<&serde_json::Value>,
+) -> String {
+    let mut req = json!({
+        "action_id": ACTION_DV_MANAGE_RULES,
+        "rid": rid,
+        "scope": scope,
+    });
+    if let Some(sid) = sheet_id {
+        req["sheet_id"] = serde_json::Value::String(sid.to_string());
+    }
+    if let Some(rl) = range_list {
+        req["range_list"] = rl.clone();
+    }
+    req.to_string()
+}
+
+pub fn build_dv_clear_rule(
+    rid: &str,
+    sheet_range_list: serde_json::Value,
+    active_info: serde_json::Value,
+) -> String {
+    json!({
+        "action_id": ACTION_DV_CLEAR_RULE,
+        "rid": rid,
+        "sheet_range_list": sheet_range_list,
+        "active_info": active_info,
+    })
+    .to_string()
+}
+
+// ─── Themes ──────────────────────────────────────────────────────────────────
+
+pub fn build_apply_theme(rid: &str, themes_type: i32, themes_properties: Option<Value>) -> String {
+    let mut req = json!({
+        "action_id": ACTION_APPLY_THEME,
+        "rid": rid,
+        "themes_type": themes_type,
+    });
+    if let Some(props) = themes_properties {
+        req["themes_properties"] = props;
+    }
+    req.to_string()
+}
+
+pub fn build_get_themes(rid: &str) -> String {
+    json!({
+        "action_id": ACTION_GET_THEMES,
+        "rid": rid,
     })
     .to_string()
 }
