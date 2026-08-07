@@ -37,16 +37,16 @@ Or jump into the interactive REPL:
 ```
 $ zs-cli
 
-zs> open mydata.xlsx
+zs-cli> open mydata.xlsx
 ✔ Opened: mydata.xlsx (3 sheets)
 
-zs [mydata | Sheet1]> cell get A1
+zs-cli [mydata | Sheet1]> cell get A1
 Revenue
 
-zs [mydata | Sheet1]> cell set B2 --formula "=SUM(B3:B100)"
+zs-cli [mydata | Sheet1]> cell set B2 --formula "=SUM(B3:B100)"
 ✔ B2 = 42850.00
 
-zs [mydata | Sheet1]> save
+zs-cli [mydata | Sheet1]> save
 ✔ Saved: mydata.xlsx
 ```
 
